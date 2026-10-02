@@ -9,6 +9,8 @@ lerna-debug.log*
 docs/PLAN.md
 docs/webhook-delivery-system-spec-v2.pdf
 
+worker-configuration.d.ts
+
 .dev
 
 # Diagnostic reports (https://nodejs.org/api/report.html)

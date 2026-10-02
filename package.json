@@ -9,5 +9,8 @@
     "scripts": {
         "test": "pnpm -r run --if-present test",
         "typecheck": "pnpm -r run --if-present typecheck"
+    },
+    "devDependencies": {
+        "typescript": "^7.0.2"
     }
 }

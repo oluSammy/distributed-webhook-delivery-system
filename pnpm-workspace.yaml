@@ -1,4 +1,8 @@
 packages:
-  - "apps/*"
-  - "packages/*"
-  - "test-consumer"
+  - apps/*
+  - packages/*
+  - test-consumer
+
+ignoredBuiltDependencies:
+  - esbuild
+  - workerd
