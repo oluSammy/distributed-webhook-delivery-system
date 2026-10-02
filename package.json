@@ -1,0 +1,13 @@
+{
+    "name": "webhook-delivery-system",
+    "private": true,
+    "type": "module",
+    "packageManager": "pnpm@10.29.3",
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "test": "pnpm -r run --if-present test",
+        "typecheck": "pnpm -r run --if-present typecheck"
+    }
+}

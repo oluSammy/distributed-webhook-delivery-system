@@ -6,9 +6,8 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
-docs
-
-docs/
+docs/PLAN.md
+docs/webhook-delivery-system-spec-v2.pdf
 
 .dev
 
@@ -153,3 +152,12 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# macOS
+.DS_Store
