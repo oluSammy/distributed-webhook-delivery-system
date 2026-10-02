@@ -1,0 +1,30 @@
+name: wds # compose project name
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: webhooks
+      POSTGRES_PASSWORD: webhooks
+      POSTGRES_DB: webhooks
+    ports:
+      - "5433:5432" #  maps your Mac's port 5433 → the container's port 5432
+    command: # starts postgres with extra settings sets one setting from postgresql.conf
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_preload_libraries=pg_stat_statements # built in extension to load how long every query takes
+      - -c
+      - log_lock_waits=on # logs any query that waits on a lock for longer than deadlock_timeout
+    shm_size: 256mb # docker gives 64mb of shared memory by default
+    volumes:
+      - pgdata:/var/lib/postgresql/18/data # stores the data in a named docker volume so the data survives docker compose down, docker compose down -v deletes it
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhooks -d webhooks"]
+      interval: 2s # checks every 2s wether docker is accepting connections
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:
