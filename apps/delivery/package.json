@@ -6,7 +6,8 @@
     "./contract": "./src/contract.ts"
   },
   "scripts": {
-    "typecheck": "wrangler types && tsc"
+    "typecheck": "wrangler types && tsc",
+    "test": "vitest run"
   },
   "dependencies": {
     "postgres": "^3.4.9"

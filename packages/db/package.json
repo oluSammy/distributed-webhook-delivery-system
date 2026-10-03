@@ -1,0 +1,14 @@
+{
+  "name": "@wds/db",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "node --env-file-if-exists=../../.env node_modules/node-pg-migrate/bin/node-pg-migrate.js up --advisory-lock-mode wait",
+    "migrate:create": "node-pg-migrate create --migration-file-language sql --migration-filename-format index",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.23.1"
+  }
+}

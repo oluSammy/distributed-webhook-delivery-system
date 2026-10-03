@@ -4,18 +4,20 @@
   "type": "module",
   "packageManager": "pnpm@10.29.3",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
-    "test": "pnpm -r run --if-present test",
     "typecheck": "pnpm -r run --if-present typecheck",
     "dev": "docker compose up -d --wait && wrangler dev -c apps/api/wrangler.toml -c apps/dispatcher/wrangler.toml -c apps/delivery/wrangler.toml",
     "lint": "biome check .",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "test": "pnpm -r run --if-present test",
+    "migrate": "pnpm --filter @wds/db migrate"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
     "wrangler": "^4.147.0"
   }
 }
