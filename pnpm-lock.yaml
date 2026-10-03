@@ -11,12 +11,44 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+      wrangler:
+        specifier: ^4.147.0
+        version: 4.147.0
 
   apps/api:
     dependencies:
+      '@wds/dispatcher':
+        specifier: workspace:*
+        version: link:../dispatcher
       hono:
         specifier: ^4.13.12
         version: 4.13.12
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+    devDependencies:
+      wrangler:
+        specifier: ^4.147.0
+        version: 4.147.0
+
+  apps/delivery:
+    dependencies:
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+    devDependencies:
+      wrangler:
+        specifier: ^4.147.0
+        version: 4.147.0
+
+  apps/dispatcher:
+    dependencies:
+      '@wds/delivery':
+        specifier: workspace:*
+        version: link:../delivery
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
     devDependencies:
       wrangler:
         specifier: ^4.147.0
@@ -580,6 +612,10 @@ packages:
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
 
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
+    engines: {node: '>=12'}
+
   semver@7.8.5:
     resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
     engines: {node: '>=10'}
@@ -1009,6 +1045,8 @@ snapshots:
   path-to-regexp@6.3.0: {}
 
   pathe@2.0.3: {}
+
+  postgres@3.4.9: {}
 
   semver@7.8.5: {}
 

@@ -8,9 +8,11 @@
     },
     "scripts": {
         "test": "pnpm -r run --if-present test",
-        "typecheck": "pnpm -r run --if-present typecheck"
+        "typecheck": "pnpm -r run --if-present typecheck",
+        "dev": "docker compose up -d --wait && wrangler dev -c apps/api/wrangler.toml -c apps/dispatcher/wrangler.toml -c apps/delivery/wrangler.toml"
     },
     "devDependencies": {
-        "typescript": "^7.0.2"
+        "typescript": "^7.0.2",
+        "wrangler": "^4.147.0"
     }
 }

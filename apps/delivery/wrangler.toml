@@ -1,0 +1,11 @@
+name = "wds-delivery"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "local-dev-placeholder"
+localConnectionString = "postgres://webhooks:webhooks@localhost:5433/webhooks"

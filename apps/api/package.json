@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
     "typecheck": "wrangler types && tsc"
   },
-  "license": "ISC",
   "dependencies": {
-    "hono": "^4.13.12"
+    "@wds/dispatcher": "workspace:*",
+    "hono": "^4.13.12",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "wrangler": "^4.147.0"
