@@ -1,18 +1,18 @@
 {
-    "name": "@wds/dispatcher",
-    "private": true,
-    "type": "module",
-    "exports": {
-        "./contract": "./src/contract.ts"
-    },
-    "scripts": {
-        "typecheck": "wrangler types && tsc"
-    },
-    "dependencies": {
-        "@wds/delivery": "workspace:*",
-        "postgres": "^3.4.9"
-    },
-    "devDependencies": {
-        "wrangler": "^4.147.0"
-    }
+  "name": "@wds/dispatcher",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contract": "./src/contract.ts"
+  },
+  "scripts": {
+    "typecheck": "wrangler types && tsc"
+  },
+  "dependencies": {
+    "@wds/delivery": "workspace:*",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "wrangler": "^4.147.0"
+  }
 }

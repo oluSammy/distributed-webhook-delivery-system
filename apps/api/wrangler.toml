@@ -1,6 +1,6 @@
 name = "wds-api"
 main = "src/index.ts"
-compatibility_date = "2026-10-01"
+compatibility_date = "2026-08-15"
 compatibility_flags = ["nodejs_compat"]
 
 [[hyperdrive]]

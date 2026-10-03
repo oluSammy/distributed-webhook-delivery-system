@@ -1,18 +1,21 @@
 {
-    "name": "webhook-delivery-system",
-    "private": true,
-    "type": "module",
-    "packageManager": "pnpm@10.29.3",
-    "engines": {
-        "node": ">=22"
-    },
-    "scripts": {
-        "test": "pnpm -r run --if-present test",
-        "typecheck": "pnpm -r run --if-present typecheck",
-        "dev": "docker compose up -d --wait && wrangler dev -c apps/api/wrangler.toml -c apps/dispatcher/wrangler.toml -c apps/delivery/wrangler.toml"
-    },
-    "devDependencies": {
-        "typescript": "^7.0.2",
-        "wrangler": "^4.147.0"
-    }
+  "name": "webhook-delivery-system",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "pnpm -r run --if-present test",
+    "typecheck": "pnpm -r run --if-present typecheck",
+    "dev": "docker compose up -d --wait && wrangler dev -c apps/api/wrangler.toml -c apps/dispatcher/wrangler.toml -c apps/delivery/wrangler.toml",
+    "lint": "biome check .",
+    "format": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.147.0"
+  }
 }
