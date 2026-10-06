@@ -85,6 +85,7 @@ create table endpoint_secrets (
 create index idx_endpoint_secrets_endpoint on
   endpoint_secrets (endpoint_id);
 
+--  an endpoint has at most one current secret, meaning one with no expiry.
 create unique index uq_endpoint_secrets_current
     on endpoint_secrets (endpoint_id)
     where expires_at is null;
