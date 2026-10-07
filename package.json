@@ -12,7 +12,8 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "pnpm -r run --if-present test",
-    "migrate": "pnpm --filter @wds/db migrate"
+    "migrate": "pnpm --filter @wds/db migrate",
+    "seed": "pnpm --filter @wds/db seed"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

@@ -12,10 +12,10 @@ export type MasterKey = {
 };
 
 export type EncryptedSecret = {
-  secretCiphertext: Uint8Array;
-  secretIv: Uint8Array;
-  dekCiphertext: Uint8Array;
-  dekIv: Uint8Array;
+  secretCiphertext: Uint8Array<ArrayBuffer>;
+  secretIv: Uint8Array<ArrayBuffer>;
+  dekCiphertext: Uint8Array<ArrayBuffer>;
+  dekIv: Uint8Array<ArrayBuffer>;
   kekVersion: number;
 };
 

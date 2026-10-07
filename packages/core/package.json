@@ -1,7 +1,7 @@
 {
   "name": "@wds/core",
   "private": true,
-   "type": "module",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -9,16 +9,9 @@
     "typecheck": "tsc",
     "test": "vitest run"
   },
-  "keywords": [],
-  "license": "ISC",
-  "packageManager": "pnpm@10.29.3",
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20261006.1",
     "vitest": "^4.1.11"
-  },
-  "dependencies": {
-    "install": "^0.13.0",
-    "pnpm": "^12.9.1"
   }
 }

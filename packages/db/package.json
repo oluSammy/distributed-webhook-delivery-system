@@ -5,10 +5,16 @@
   "scripts": {
     "migrate": "node --env-file-if-exists=../../.env node_modules/node-pg-migrate/bin/node-pg-migrate.js up --advisory-lock-mode wait",
     "migrate:create": "node-pg-migrate create --migration-file-language sql --migration-filename-format index",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "seed": "node --env-file-if-exists=../../.env src/seed.ts"
   },
   "devDependencies": {
+    "@types/node": "^26.6.4",
     "node-pg-migrate": "^9.0.0",
     "pg": "^8.23.1"
+  },
+  "dependencies": {
+    "@wds/core": "workspace:*",
+    "postgres": "^3.4.9"
   }
 }
