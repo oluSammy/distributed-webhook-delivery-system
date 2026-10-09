@@ -1,6 +1,12 @@
-import { encryptSecret, generateApiKey, generateSigningSecret, importMasterKey } from "@wds/core";
+import {
+  encryptSecret,
+  firstRow,
+  generateApiKey,
+  generateSigningSecret,
+  importMasterKey,
+} from "@wds/core";
 import postgres from "postgres";
-import { firstRow, requireEnv } from "./helpers.ts";
+import { requireEnv } from "./helpers.ts";
 
 const CONSUMER_URL = "http://localhost:4000";
 

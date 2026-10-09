@@ -30,3 +30,7 @@ export async function generateApiKey(scope: ApiKeyScope): Promise<GeneratedApiKe
 export function hashApiKey(key: string): Promise<Uint8Array> {
   return sha256(key);
 }
+
+export function requestHash(type: string, payload: unknown): Promise<Uint8Array> {
+  return sha256(`${type}\n${JSON.stringify(payload)}`);
+}
