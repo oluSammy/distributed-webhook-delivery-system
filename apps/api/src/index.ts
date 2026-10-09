@@ -1,8 +1,11 @@
-import type { DispatcherApi } from "@wds/dispatcher/contract";
-import { Hono } from "hono";
 import { createDb } from "./db";
+import { handleError } from "./errors";
+import { requireTenant } from "./middleware/auth";
+import { withDb } from "./middleware/db";
+import { createRouter } from "./router";
+import { events } from "./routes/events";
 
-const app = new Hono<{ Bindings: Env }>(); // creates the router - c.env has the shape of the generated Env
+const app = createRouter();
 
 app.get("/healthz", async (c) => c.json({ ok: true }));
 
@@ -28,11 +31,9 @@ app.get("/readyz", async (c) => {
   }
 });
 
-app.post("/debug/wake", async (c) => {
-  const dispatchers = c.env.DISPATCHER as DurableObjectNamespace<DispatcherApi>;
-  const stub = dispatchers.getByName("shard-0");
-  const result = await stub.wake();
-  return c.json(result);
-});
+app.use("/api/*", withDb, requireTenant); // connection, then auth
+app.route("/api/events", events);
+
+app.onError(handleError);
 
 export default app;

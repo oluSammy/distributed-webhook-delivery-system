@@ -6,9 +6,12 @@
     "typecheck": "wrangler types && tsc"
   },
   "dependencies": {
+    "@hono/zod-openapi": "^1.6.3",
+    "@wds/core": "workspace:*",
     "@wds/dispatcher": "workspace:*",
     "hono": "^4.13.12",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "wrangler": "^4.147.0"
