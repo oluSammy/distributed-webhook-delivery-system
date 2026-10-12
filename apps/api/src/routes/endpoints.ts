@@ -1,6 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
-  checkEndpointUrl,
+  checkEndpointTarget,
   encryptSecret,
   firstRow,
   generateSigningSecret,
@@ -103,11 +103,19 @@ endpoints.openapi(createEndpoint, async (c) => {
 
   const tenantId = c.get("tenantId");
 
-  console.log(c.env.ALLOW_LOCAL_ENDPOINTS)
-
-  const problem = checkEndpointUrl(body.url, {
-    allowLocal: c.env.ALLOW_LOCAL_ENDPOINTS === "true",
-  });
+  let problem: string | null;
+  try {
+    problem = await checkEndpointTarget(body.url, {
+      allowLocal: c.env.ALLOW_LOCAL_ENDPOINTS === "true",
+    });
+  } catch (err) {
+    console.error("endpoint host lookup failed", err);
+    throw new ApiError(
+      503,
+      "dns_lookup_failed",
+      "Could not look up the endpoint host name, try again",
+    );
+  }
   if (problem !== null) {
     throw new ApiError(422, "endpoint_url_not_allowed", `Endpoint URL ${problem}`);
   }

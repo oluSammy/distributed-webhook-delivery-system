@@ -1,2 +1,5 @@
 # Copy to .dev.vars. Must equal MASTER_KEY_V1 in the root .env (the seed uses it too).
 MASTER_KEY_V1=
+ - Add to apps/api/.dev.vars.example:
+# Local development only: allow http:// and localhost/private endpoint URLs (the seed's test consumer).
+ALLOW_LOCAL_ENDPOINTS=true

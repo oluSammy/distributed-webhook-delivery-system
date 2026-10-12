@@ -11,8 +11,6 @@ docs/webhook-delivery-system-spec-v2.pdf
 
 worker-configuration.d.ts
 
-.dev
-
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 

@@ -1,3 +1,5 @@
+import { type Resolver, resolveHost } from "./dns.ts";
+
 export type UrlPolicy = {
   allowLocal: boolean; // plain http and local addresses are allowed during development
 };
@@ -133,6 +135,31 @@ function embeddedIPv4(ipv6: bigint): bigint | null {
   const top96 = ipv6 >> 32n;
   if (top96 === 0xffffn || top96 === 0x64ff9b0000000000000000n) {
     return ipv6 & 0xffffffffn;
+  }
+  return null;
+}
+
+export async function checkEndpointTarget(
+  raw: string,
+  policy: UrlPolicy,
+  resolve: Resolver = resolveHost,
+): Promise<string | null> {
+  const problem = checkEndpointUrl(raw, policy);
+  if (problem !== null || policy.allowLocal) {
+    return problem;
+  }
+
+  const host = new URL(raw).hostname;
+  if (parseIPv4(host) !== null || host.startsWith("[")) {
+    return null; // an address, already checked by checkEndpointUrl
+  }
+
+  const addresses = await resolve(host);
+  if (addresses.length === 0) {
+    return "must use a host name that resolves";
+  }
+  if (addresses.some((address) => isBlockedAddress(address))) {
+    return "must not resolve to a private, loopback or reserved address";
   }
   return null;
 }
