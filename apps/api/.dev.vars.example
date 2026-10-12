@@ -1,0 +1,2 @@
+# Copy to .dev.vars. Must equal MASTER_KEY_V1 in the root .env (the seed uses it too).
+MASTER_KEY_V1=

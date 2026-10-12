@@ -3,6 +3,7 @@ import { handleError } from "./errors";
 import { requireTenant } from "./middleware/auth";
 import { withDb } from "./middleware/db";
 import { createRouter } from "./router";
+import { endpoints } from "./routes/endpoints";
 import { events } from "./routes/events";
 
 const app = createRouter();
@@ -33,6 +34,7 @@ app.get("/readyz", async (c) => {
 
 app.use("/api/*", withDb, requireTenant); // connection, then auth
 app.route("/api/events", events);
+app.route("/api/endpoints", endpoints);
 
 app.onError(handleError);
 
