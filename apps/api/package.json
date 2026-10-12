@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "wrangler types && tsc"
+    "typecheck": "wrangler types --strict-vars=false && tsc"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.6.3",

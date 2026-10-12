@@ -1,24 +1,23 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { encryptSecret, firstRow, generateSigningSecret, importMasterKey } from "@wds/core";
+import {
+  checkEndpointUrl,
+  encryptSecret,
+  firstRow,
+  generateSigningSecret,
+  importMasterKey,
+} from "@wds/core";
 import type { Sql } from "postgres";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
 
 const MAX_SUBSCRIPTIONS = 50;
+const EndpointUrl = z.url().max(2048);
 
 const SubscriptionPattern = z
   .string()
   .regex(
     /^(\*|[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?)$/,
     "Must be *, an event type, or a prefix ending in .*",
-  );
-
-const EndpointUrl = z
-  .url()
-  .max(2048)
-  .refine(
-    (value) => ["http:", "https:"].includes(new URL(value).protocol),
-    "Must be an http(s) URL",
   );
 
 const CreateEndpointBody = z.object({
@@ -103,6 +102,16 @@ endpoints.openapi(createEndpoint, async (c) => {
   const sql = c.get("sql");
 
   const tenantId = c.get("tenantId");
+
+  console.log(c.env.ALLOW_LOCAL_ENDPOINTS)
+
+  const problem = checkEndpointUrl(body.url, {
+    allowLocal: c.env.ALLOW_LOCAL_ENDPOINTS === "true",
+  });
+  if (problem !== null) {
+    throw new ApiError(422, "endpoint_url_not_allowed", `Endpoint URL ${problem}`);
+  }
+
   const master = await importMasterKey(c.env.MASTER_KEY_V1, 1);
   const patterns = [...new Set(body.subscriptions)];
 
