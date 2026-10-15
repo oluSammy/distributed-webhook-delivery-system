@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 
-export const EVENTS_PER_BATCH = 10;
+export const EVENTS_PER_BATCH = 20;
 
 export type DeliveriesCreated = {
   events: number;
@@ -12,7 +12,6 @@ export type DeliveriesCreated = {
 // creates a delivery record and a queue entry for every (event, endpoint) pair,
 // flags the affected tenants as having work,
 // and marks the events as processed.
-
 export async function createDeliveries(sql: Sql): Promise<DeliveriesCreated> {
   const [result] = await sql<DeliveriesCreated[]>`
       with pending as (
@@ -43,8 +42,7 @@ export async function createDeliveries(sql: Sql): Promise<DeliveriesCreated> {
         returning id, created_at, tenant_id, endpoint_id
       ),
       queued as (
-        insert into delivery_queue (delivery_id, delivery_created_at, tenant_id,
-  endpoint_id, next_attempt_at)
+        insert into delivery_queue (delivery_id, delivery_created_at, tenant_id, endpoint_id, next_attempt_at)
         select id, created_at, tenant_id, endpoint_id, now() from new_deliveries
         returning tenant_id
       ),
