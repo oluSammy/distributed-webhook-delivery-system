@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { claimDeliveries, DELIVERIES_PER_BATCH } from "./claim";
 import type { BatchResult, DeliveryApi } from "./contract";
 import { createDeliveries, EVENTS_PER_BATCH } from "./create-deliveries";
 import { createDb } from "./db";
@@ -8,11 +9,13 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
     const sql = createDb(this.env);
     try {
       const created = await createDeliveries(sql);
-      console.log(`delivery shard ${shard}: created deliveries`, created);
+      const callId = `shard-${shard}/${crypto.randomUUID()}`;
+      const claims = await claimDeliveries(sql, callId);
+      console.log(`delivery ${callId}: created`, created, `claimed ${claims.length}`);
       return {
-        claimed: 0,
+        claimed: claims.length,
         nextDueAt: null,
-        fullBatch: created.events === EVENTS_PER_BATCH,
+        fullBatch: created.events === EVENTS_PER_BATCH || claims.length === DELIVERIES_PER_BATCH,
       };
     } finally {
       this.ctx.waitUntil(sql.end());
