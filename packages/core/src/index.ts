@@ -1,3 +1,5 @@
+export * from "./backoff.ts";
+export * from "./classify.ts";
 export * from "./crypto.ts";
 export * from "./dns.ts";
 export * from "./encoding.ts";

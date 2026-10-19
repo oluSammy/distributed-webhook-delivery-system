@@ -13,5 +13,8 @@
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20261006.1",
     "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   }
 }

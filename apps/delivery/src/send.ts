@@ -7,9 +7,20 @@ import {
 } from "@wds/core";
 import type { ClaimedDelivery } from "./claim";
 
+const BODY_LIMIT = 4096;
+
+// What happened when sending: the consumer answered, the request failed, or it was never sent.
 export type SendResult =
-  | { kind: "response"; status: number; latencyMs: number; signedTimestamp: number }
-  | { kind: "error"; error: unknown; latencyMs: number; signedTimestamp: number }
+  | {
+      kind: "response";
+      status: number;
+      retryAfter: string | null;
+      body: string | null; // start of the body, failed attempts only
+      signedTimestamp: number;
+      startedAt: Date;
+      latencyMs: number;
+    }
+  | { kind: "error"; error: unknown; signedTimestamp: number; startedAt: Date; latencyMs: number }
   | { kind: "blocked"; reason: string };
 
 type PreparedEndpoint = {
@@ -38,7 +49,7 @@ export class Sender {
       endpoint.secrets,
     );
 
-    const started = Date.now();
+    const startedAt = new Date();
     try {
       const response = await fetch(claim.url, {
         method: "POST",
@@ -47,21 +58,28 @@ export class Sender {
           "webhook-id": claim.event_id,
           "webhook-timestamp": String(signedTimestamp),
           "webhook-signature": signature,
-          "webhook-attempt": String(claim.attempt_count + 1),
+          "webhook-attempt": String(claim.attempt_number),
         },
         body,
         redirect: "manual",
         signal: AbortSignal.timeout(claim.timeout_ms),
       });
-      await response.body?.cancel();
+
+      const latencyMs = Date.now() - startedAt.getTime();
+      const ok = response.status >= 200 && response.status < 300;
+
       return {
         kind: "response",
         status: response.status,
-        latencyMs: Date.now() - started,
+        retryAfter: response.headers.get("retry-after"),
+        body: ok ? await discard(response) : await readStart(response, BODY_LIMIT),
         signedTimestamp,
+        startedAt,
+        latencyMs,
       };
     } catch (error) {
-      return { kind: "error", error, latencyMs: Date.now() - started, signedTimestamp };
+      const latencyMs = Date.now() - startedAt.getTime();
+      return { kind: "error", error, signedTimestamp, startedAt, latencyMs };
     }
   }
 
@@ -97,6 +115,40 @@ export class Sender {
     );
     return { problem: null, secrets };
   }
+}
+
+// Closes the connection without reading the body.
+async function discard(response: Response): Promise<null> {
+  await response.body?.cancel();
+  return null;
+}
+
+// The first `limit` bytes of the body as text, then closes the connection. A body that stalls
+// or breaks stops the reading but keeps what arrived. NUL characters are removed: Postgres text
+// can't store them.
+async function readStart(response: Response, limit: number): Promise<string | null> {
+  if (response.body === null) {
+    return null;
+  }
+  const reader = response.body.getReader();
+  const bytes = new Uint8Array(limit);
+  let length = 0;
+  try {
+    while (length < limit) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      const take = Math.min(value.length, limit - length);
+      bytes.set(value.subarray(0, take), length);
+      length += take;
+    }
+  } catch {
+    // keep what was read
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  return new TextDecoder().decode(bytes.subarray(0, length)).replaceAll("\0", "");
 }
 
 // {"type":…,"timestamp":…,"data":…}, built as text: the payload goes in exactly as stored,
