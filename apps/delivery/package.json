@@ -6,10 +6,11 @@
     "./contract": "./src/contract.ts"
   },
   "scripts": {
-    "typecheck": "wrangler types && tsc",
+    "typecheck": "wrangler types --strict-vars=false && tsc",
     "test": "vitest run"
   },
   "dependencies": {
+    "@wds/core": "workspace:*",
     "postgres": "^3.4.9"
   },
   "devDependencies": {

@@ -9,3 +9,9 @@ preview_urls = false
 binding = "HYPERDRIVE"
 id = "local-dev-placeholder"
 localConnectionString = "postgres://webhooks:webhooks@localhost:5433/webhooks"
+
+[secrets]
+required = ["MASTER_KEY_V1"]
+
+[vars]
+ALLOW_LOCAL_ENDPOINTS = "false"

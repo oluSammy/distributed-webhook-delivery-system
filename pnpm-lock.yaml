@@ -48,6 +48,9 @@ importers:
 
   apps/delivery:
     dependencies:
+      '@wds/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       postgres:
         specifier: ^3.4.9
         version: 3.4.9

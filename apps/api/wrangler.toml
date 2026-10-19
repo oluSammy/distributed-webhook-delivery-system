@@ -17,4 +17,4 @@ script_name = "wds-dispatcher"
 required = ["MASTER_KEY_V1"]
 
 [vars]
-ALLOW_LOCAL_ENDPOINTS = "true"
+ALLOW_LOCAL_ENDPOINTS = "false"
