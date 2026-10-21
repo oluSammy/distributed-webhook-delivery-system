@@ -1,4 +1,4 @@
-import { createDb } from "./db";
+import { createDb } from "@wds/db";
 import { handleError } from "./errors";
 import { requireTenant } from "./middleware/auth";
 import { withDb } from "./middleware/db";
@@ -11,7 +11,7 @@ const app = createRouter();
 app.get("/healthz", async (c) => c.json({ ok: true }));
 
 app.get("/readyz", async (c) => {
-  const sql = createDb(c.env);
+  const sql = createDb(c.env.HYPERDRIVE.connectionString);
   try {
     await sql`select 1`;
     return c.json({

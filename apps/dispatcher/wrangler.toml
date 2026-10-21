@@ -14,6 +14,10 @@ tag = "v1"
 new_sqlite_classes = ["Dispatcher"]
 
 [[services]]
+binding = "CREATOR"
+service = "wds-creator"
+
+[[services]]
 binding = "DELIVERY"
 service = "wds-delivery"
 

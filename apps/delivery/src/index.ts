@@ -1,5 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { classify, importMasterKey, type NextStep, nextStep, parseRetryPolicy } from "@wds/core";
+import { createDb } from "@wds/db";
 import type { Sql } from "postgres";
 import {
   type ClaimedDelivery,
@@ -8,8 +9,6 @@ import {
   LEASE_SECONDS,
 } from "./claim";
 import type { BatchResult, DeliveryApi } from "./contract";
-import { createDeliveries, EVENTS_PER_BATCH } from "./create-deliveries";
-import { createDb } from "./db";
 import { forEachLimited } from "./limit";
 import { recordOutcome, releaseClaims } from "./record";
 import { Sender } from "./send";
@@ -22,13 +21,12 @@ const RECORD_MARGIN_MS = 5000;
 
 export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryApi {
   async runBatch(shard: number): Promise<BatchResult> {
-    const sql = createDb(this.env);
+    const sql = createDb(this.env.HYPERDRIVE.connectionString);
     try {
-      const created = await createDeliveries(sql);
       const callId = `shard-${shard}/${crypto.randomUUID()}`;
       const claims = await claimDeliveries(sql, callId);
       const leaseEndsAt = Date.now() + LEASE_SECONDS * 1000;
-      console.log(`delivery ${callId}: created`, created, `claimed ${claims.length}`);
+      console.log(`delivery ${callId}: claimed ${claims.length}`);
 
       const unsent = new Set(claims);
       try {
@@ -60,7 +58,7 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
       return {
         claimed: claims.length,
         nextDueAt: null,
-        fullBatch: created.events === EVENTS_PER_BATCH || claims.length === DELIVERIES_PER_BATCH,
+        fullBatch: claims.length === DELIVERIES_PER_BATCH,
       };
     } finally {
       this.ctx.waitUntil(sql.end());

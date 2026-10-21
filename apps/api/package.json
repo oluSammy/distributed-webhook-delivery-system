@@ -8,6 +8,7 @@
   "dependencies": {
     "@hono/zod-openapi": "^1.6.3",
     "@wds/core": "workspace:*",
+    "@wds/db": "workspace:*",
     "@wds/dispatcher": "workspace:*",
     "hono": "^4.13.12",
     "postgres": "^3.4.9",

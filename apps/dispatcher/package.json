@@ -9,6 +9,7 @@
     "typecheck": "wrangler types && tsc"
   },
   "dependencies": {
+    "@wds/creator": "workspace:*",
     "@wds/delivery": "workspace:*",
     "postgres": "^3.4.9"
   },
