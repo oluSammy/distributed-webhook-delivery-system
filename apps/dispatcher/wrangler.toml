@@ -26,3 +26,5 @@ binding = "HYPERDRIVE"
 id = "local-dev-placeholder"
 localConnectionString = "postgres://webhooks:webhooks@localhost:5433/webhooks"
 
+[vars]
+DELIVERY_CALLS = "1"

@@ -92,9 +92,15 @@ importers:
 
   apps/dispatcher:
     dependencies:
+      '@wds/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@wds/creator':
         specifier: workspace:*
         version: link:../creator
+      '@wds/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@wds/delivery':
         specifier: workspace:*
         version: link:../delivery

@@ -2,12 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { classify, importMasterKey, type NextStep, nextStep, parseRetryPolicy } from "@wds/core";
 import { createDb } from "@wds/db";
 import type { Sql } from "postgres";
-import {
-  type ClaimedDelivery,
-  claimDeliveries,
-  DELIVERIES_PER_BATCH,
-  LEASE_SECONDS,
-} from "./claim";
+import { type ClaimedDelivery, claimDeliveries, LEASE_SECONDS } from "./claim";
 import type { BatchResult, DeliveryApi } from "./contract";
 import { forEachLimited } from "./limit";
 import { recordOutcome, releaseClaims } from "./record";
@@ -57,8 +52,6 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
 
       return {
         claimed: claims.length,
-        nextDueAt: null,
-        fullBatch: claims.length === DELIVERIES_PER_BATCH,
       };
     } finally {
       this.ctx.waitUntil(sql.end());

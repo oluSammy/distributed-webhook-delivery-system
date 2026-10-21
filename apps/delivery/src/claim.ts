@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 
-export const DELIVERIES_PER_BATCH = 10;
+const DELIVERIES_PER_BATCH = 10;
 const TENANTS_PER_BATCH = 10;
 const DELIVERIES_PER_TENANT = 5;
 
