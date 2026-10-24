@@ -1,0 +1,15 @@
+{
+  "name": "@wds/scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc",
+    "smoke": "node --env-file-if-exists=../.env smoke.ts"
+  },
+  "dependencies": {
+    "@wds/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4"
+  }
+}

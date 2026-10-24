@@ -14,7 +14,8 @@
     "test": "pnpm -r run --if-present test",
     "migrate": "pnpm --filter @wds/db migrate",
     "seed": "pnpm --filter @wds/db seed",
-    "consumer": "wrangler dev -c apps/test-consumer/wrangler.toml"
+    "consumer": "wrangler dev -c apps/test-consumer/wrangler.toml",
+    "smoke": "pnpm --filter @wds/scripts smoke"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

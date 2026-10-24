@@ -43,4 +43,19 @@ describe("test consumer", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("http://consumer.test/ok");
   });
+
+  it("tells what arrived at a path", async () => {
+    const id = crypto.randomUUID();
+    await send("/ok", id);
+    await send("/ok", id);
+    const lookup = (path: string) =>
+      exports.default.fetch(
+        `http://consumer.test/_received?${new URLSearchParams({ webhook_id: id, path })}`,
+      );
+    expect(await (await lookup("/ok")).json()).toEqual({
+      count: 2,
+      request: { id, timestamp: null, signature: null, body: "{}" },
+    });
+    expect(await (await lookup("/gone")).json()).toEqual({ count: 0, request: null });
+  });
 });

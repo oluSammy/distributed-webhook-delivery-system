@@ -163,6 +163,16 @@ importers:
         specifier: ^8.23.1
         version: 8.23.1
 
+  scripts:
+    dependencies:
+      '@wds/core':
+        specifier: workspace:*
+        version: link:../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.4
+        version: 26.6.4
+
 packages:
 
   '@asteasolutions/zod-to-openapi@9.1.0':

@@ -11,6 +11,8 @@ import { verifyWebhook } from "@wds/core";
 //   /429?retry_after=30     429, with a Retry-After header when retry_after is given
 //   /redirect               302 to /ok (the sender must not follow it)
 //   /gone                   410
+// GET /_received?webhook_id=…&path=/ok tells what arrived at a path: how many times, and the last
+// request (headers and body), so the smoke script can check its signature with the endpoint's secret.
 // It checks each signature when WHSEC is set, and logs a webhook that arrives again after it was
 // already answered 2xx: a duplicate, which at-least-once delivery allows.
 
@@ -20,6 +22,14 @@ const encoder = new TextEncoder();
 type Receipt = {
   count: number; // receipts of this webhook at this URL, this one included
   answeredOk: boolean; // an earlier receipt was answered 2xx
+};
+
+// The parts of a request needed to verify its signature.
+type ReceivedRequest = {
+  id: string | null;
+  timestamp: string | null;
+  signature: string | null;
+  body: string;
 };
 
 // Remembers the webhooks received, keyed by webhook-id and URL: one event goes to every matching
@@ -35,14 +45,26 @@ export class ReceivedLog extends DurableObject<Env> {
         answered_ok integer not null default 0
       )
     `);
+    ctx.storage.sql.exec(`
+      create table if not exists last_request (
+        key text primary key,
+        request text not null
+      )
+    `);
   }
 
-  arrived(key: string): Receipt {
+  arrived(key: string, request: ReceivedRequest): Receipt {
+    this.ctx.storage.sql.exec(
+      `insert into last_request (key, request) values (?, ?)
+       on conflict (key) do update set request = excluded.request`,
+      key,
+      JSON.stringify(request),
+    );
     const row = this.ctx.storage.sql
       .exec<{ count: number; answered_ok: number }>(
         `insert into received (key, count) values (?, 1)
-        on conflict (key) do update set count = count + 1
-        returning count, answered_ok`,
+         on conflict (key) do update set count = count + 1
+         returning count, answered_ok`,
         key,
       )
       .one();
@@ -52,17 +74,43 @@ export class ReceivedLog extends DurableObject<Env> {
   answeredOk(key: string): void {
     this.ctx.storage.sql.exec("update received set answered_ok = 1 where key = ?", key);
   }
+
+  lookup(key: string): { count: number; request: ReceivedRequest | null } {
+    const [row] = this.ctx.storage.sql
+      .exec<{ count: number; request: string | null }>(
+        `select r.count, l.request
+         from received r
+         left join last_request l using (key)
+         where r.key = ?`,
+        key,
+      )
+      .toArray();
+    return {
+      count: row?.count ?? 0,
+      request: row?.request ? (JSON.parse(row.request) as ReceivedRequest) : null,
+    };
+  }
 }
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
+    const log = env.RECEIVED.getByName("all");
+    if (url.pathname === "/_received") {
+      const id = url.searchParams.get("webhook_id");
+      return Response.json(await log.lookup(`${id} ${url.searchParams.get("path")}`));
+    }
+
     const body = await request.text();
     const webhookId = request.headers.get("webhook-id");
     const key = `${webhookId} ${url.pathname}${url.search}`;
-    const log = env.RECEIVED.getByName("all");
 
-    const receipt = await log.arrived(key);
+    const receipt = await log.arrived(key, {
+      id: webhookId,
+      timestamp: request.headers.get("webhook-timestamp"),
+      signature: request.headers.get("webhook-signature"),
+      body,
+    });
     const signature = await checkSignature(request.headers, body, env.WHSEC);
     console.log(
       `${request.method} ${url.pathname}${url.search}  id ${webhookId}` +
