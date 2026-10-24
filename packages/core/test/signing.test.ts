@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signWebhook } from "../src/signing.ts";
+import { signWebhook, TIMESTAMP_TOLERANCE_SECONDS, verifyWebhook } from "../src/signing.ts";
 
 // The test vector from the Standard Webhooks specification
 const vector = {
@@ -40,5 +40,39 @@ describe("signWebhook", () => {
   it("rejects a missing or malformed secret", async () => {
     await expect(signWebhook(vector.message, [])).rejects.toThrow("at least one");
     await expect(signWebhook(vector.message, ["not-a-secret"])).rejects.toThrow("whsec_");
+  });
+});
+
+describe("verifyWebhook", () => {
+  const now = vector.message.timestamp;
+  const other = "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+
+  it("accepts the Standard Webhooks test vector", async () => {
+    expect(await verifyWebhook(vector.message, vector.signature, [vector.secret], now)).toBe(true);
+  });
+
+  it("accepts a match on any secret and any signature in the header", async () => {
+    const header = `v1,bm90IGEgc2lnbmF0dXJl ${vector.signature}`;
+    expect(await verifyWebhook(vector.message, header, [other, vector.secret], now)).toBe(true);
+  });
+
+  it("rejects a changed body, the wrong secret or a malformed header", async () => {
+    const changed = { ...vector.message, body: '{"test": 2432232315}' };
+    expect(await verifyWebhook(changed, vector.signature, [vector.secret], now)).toBe(false);
+    expect(await verifyWebhook(vector.message, vector.signature, [other], now)).toBe(false);
+    for (const header of ["", "v1,", "v1,%%%", vector.signature.replace("v1,", "v2,")]) {
+      expect(await verifyWebhook(vector.message, header, [vector.secret], now)).toBe(false);
+    }
+  });
+
+  it("rejects a timestamp outside the tolerance, or not a number", async () => {
+    const tolerance = TIMESTAMP_TOLERANCE_SECONDS;
+    const check = (at: number) =>
+      verifyWebhook(vector.message, vector.signature, [vector.secret], at);
+    expect(await check(now + tolerance)).toBe(true);
+    expect(await check(now + tolerance + 1)).toBe(false);
+    expect(await check(now - tolerance - 1)).toBe(false);
+    const notANumber = { ...vector.message, timestamp: Number.NaN };
+    expect(await verifyWebhook(notANumber, vector.signature, [vector.secret], now)).toBe(false);
   });
 });

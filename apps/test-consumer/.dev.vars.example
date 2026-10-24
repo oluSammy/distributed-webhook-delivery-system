@@ -1,0 +1,2 @@
+# Copy to .dev.vars. The signing secrets of the endpoints that point at this consumer, separated by # spaces. Without them, signatures are not checked.
+WHSEC=

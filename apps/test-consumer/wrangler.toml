@@ -1,0 +1,19 @@
+name = "wds-test-consumer"
+main = "src/index.ts"
+compatibility_date = "2026-08-15"
+workers_dev = true # the cloud consumer needs a public URL
+preview_urls = false
+
+[dev]
+port = 4000
+
+[[durable_objects.bindings]]
+name = "RECEIVED"
+class_name = "ReceivedLog"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ReceivedLog"]
+
+[vars]
+WHSEC = "" # signing secrets to check, space-separated: put them in .dev.vars, which overrides this
