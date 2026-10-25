@@ -123,6 +123,13 @@ events.openapi(createEventBatch, async (c) => {
   );
 });
 
+// Header present: a transaction that first tries to claim the key in idempotency_keys, then inserts the
+// event. There are three possible outcomes:
+// - A new key, or an expired one → the event is created
+// - Same key and same body (same request_hash) → the original event is returned with
+//   Idempotent-Replayed: true, and nothing new is created
+// - Same key, different body → 422 idempotency_key_reused
+
 async function insertEvent(sql: Sql, tenantId: string, type: string, payload: EventPayload) {
   const { created_at, id } = firstRow(
     await sql<{ id: string; created_at: Date }[]>`

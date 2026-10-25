@@ -22,7 +22,7 @@ export class Dispatcher extends DurableObject<Env> implements DispatcherApi {
     return this.env.DELIVERY as Service<DeliveryApi>;
   }
 
-  // Called by the API after it stores events: asks for a tick now. Writes to storage only when
+  // Called by the API worker after it stores events: asks for a tick now. Writes to storage only when
   // no tick is already due, so a burst of events costs one alarm, not one per event.
   async wake(): Promise<void> {
     this.createWanted = true;
