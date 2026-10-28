@@ -2,12 +2,17 @@ import { z } from "zod";
 import type { Classification } from "./classify.ts";
 
 // tenants.retry_policy. Every field is optional; a missing one takes the spec's default (§8.1).
-export const retryPolicySchema = z.object({
-  base_seconds: z.int().min(1).max(3600).default(30),
-  cap_seconds: z.int().min(1).max(86_400).default(7200), // 2 h
-  max_attempts: z.int().min(1).max(100).default(10),
-  max_age_seconds: z.int().min(60).max(604_800).default(259_200), // 72 h; at most 7 days
-});
+export const retryPolicySchema = z
+  .object({
+    base_seconds: z.int().min(10).max(3600).default(30), // 10 s – 1 h
+    cap_seconds: z.int().min(60).max(21_600).default(7200), // 1 min – 6 h; default 2 h
+    max_attempts: z.int().min(1).max(25).default(10),
+    max_age_seconds: z.int().min(60).max(259_200).default(259_200), // 1 min – 72 h
+  })
+  .refine((policy) => policy.cap_seconds >= policy.base_seconds, {
+    message: "cap_seconds must be at least base_seconds",
+    path: ["cap_seconds"],
+  });
 
 export type RetryPolicy = z.infer<typeof retryPolicySchema>;
 
@@ -38,6 +43,7 @@ export type NextStep =
 
 export type DeliveryProgress = {
   attemptCount: number; // failures before this attempt
+  throttledCount: number; // throttles before this attempt
   createdAt: Date;
 };
 
@@ -62,7 +68,12 @@ export function nextStep(
       return scheduleRetry(backoffSeconds(failures, policy, random), delivery, policy, now);
     }
     case "throttled": {
-      const wait = Math.min(result.retryAfterSeconds ?? policy.base_seconds, policy.cap_seconds);
+      // Throttles back off like failures, counted separately. Retry-After is followed, but never
+      // below base, so a Retry-After of 0 can't make a tight loop.
+      const wait =
+        result.retryAfterSeconds === null
+          ? backoffSeconds(delivery.throttledCount + 1, policy, random)
+          : Math.min(Math.max(result.retryAfterSeconds, policy.base_seconds), policy.cap_seconds);
       return scheduleRetry(wait, delivery, policy, now);
     }
   }

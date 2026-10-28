@@ -4,7 +4,7 @@ import type { Classification } from "../src/classify.ts";
 
 const policy = parseRetryPolicy({});
 const now = new Date("2026-10-19T12:00:00Z");
-const fresh = { attemptCount: 0, createdAt: now };
+const fresh = { attemptCount: 0, throttledCount: 0, createdAt: now };
 
 function result(outcome: Classification["outcome"], extra: Partial<Classification> = {}) {
   return { outcome, errorKind: null, deadReason: null, retryAfterSeconds: null, ...extra };
@@ -24,6 +24,14 @@ describe("parseRetryPolicy", () => {
   it("falls back to the defaults for an invalid policy", () => {
     expect(parseRetryPolicy({ max_attempts: 0 })).toEqual(policy);
     expect(parseRetryPolicy("nonsense")).toEqual(policy);
+  });
+
+  it("rejects a policy outside the limits", () => {
+    expect(parseRetryPolicy({ base_seconds: 5 })).toEqual(policy);
+    expect(parseRetryPolicy({ cap_seconds: 30_000 })).toEqual(policy); // over 6 h
+    expect(parseRetryPolicy({ max_attempts: 26 })).toEqual(policy);
+    expect(parseRetryPolicy({ max_age_seconds: 300_000 })).toEqual(policy); // over 72 h
+    expect(parseRetryPolicy({ base_seconds: 600, cap_seconds: 300 })).toEqual(policy);
   });
 });
 
@@ -81,31 +89,52 @@ describe("nextStep", () => {
     expect(step).toEqual({ state: "dead", reason: "max_attempts" });
   });
 
-  it("waits as long as Retry-After says when throttled, up to the cap", () => {
-    const throttled = (retryAfterSeconds: number | null) =>
+  it("follows Retry-After when throttled, between base and cap", () => {
+    const throttled = (retryAfterSeconds: number) =>
       nextStep(result("throttled", { retryAfterSeconds }), fresh, policy, now);
     expect(throttled(90)).toEqual({
       state: "pending",
       nextAttemptAt: new Date("2026-10-19T12:01:30Z"),
     });
-    expect(throttled(null)).toEqual({
+    expect(throttled(0)).toEqual({
       state: "pending",
-      nextAttemptAt: new Date("2026-10-19T12:00:30Z"),
+      nextAttemptAt: new Date("2026-10-19T12:00:30Z"), // raised to base
     });
     expect(throttled(86_400)).toEqual({
       state: "pending",
-      nextAttemptAt: new Date("2026-10-19T14:00:00Z"),
+      nextAttemptAt: new Date("2026-10-19T14:00:00Z"), // lowered to cap
     });
+  });
+
+  it("backs off on repeated throttles without Retry-After", () => {
+    const highest = () => 1;
+    const waitAfter = (throttledCount: number) =>
+      nextStep(result("throttled"), { ...fresh, throttledCount }, policy, now, highest);
+    expect(waitAfter(0)).toEqual({
+      state: "pending",
+      nextAttemptAt: new Date("2026-10-19T12:00:30Z"), // throttle 1: up to 30 s
+    });
+    expect(waitAfter(3)).toEqual({
+      state: "pending",
+      nextAttemptAt: new Date("2026-10-19T12:04:00Z"), // throttle 4: up to 240 s
+    });
+    // throttles don't use up max_attempts
+    const almostOut = { ...fresh, attemptCount: 9, throttledCount: 20 };
+    expect(nextStep(result("throttled"), almostOut, policy, now).state).toBe("pending");
   });
 
   it("never schedules a retry past max age", () => {
     // 20 s before the 72 h cutoff: even the shortest wait (30 s) would start after it
-    const old = { attemptCount: 1, createdAt: new Date(now.getTime() - (72 * 3600 - 20) * 1000) };
+    const old = {
+      attemptCount: 1,
+      throttledCount: 0,
+      createdAt: new Date(now.getTime() - (72 * 3600 - 20) * 1000),
+    };
     expect(nextStep(result("failure"), old, policy, now, () => 1)).toEqual({
       state: "dead",
       reason: "max_age",
     });
-    expect(nextStep(result("throttled"), old, policy, now)).toEqual({
+    expect(nextStep(result("throttled"), old, policy, now, () => 1)).toEqual({
       state: "dead",
       reason: "max_age",
     });

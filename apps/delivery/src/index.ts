@@ -79,7 +79,11 @@ async function deliver(sql: Sql, sender: Sender, claim: ClaimedDelivery): Promis
   const classification = classify(result, now);
   const step = nextStep(
     classification,
-    { attemptCount: claim.attempt_count, createdAt: claim.delivery_created_at },
+    {
+      attemptCount: claim.attempt_count,
+      throttledCount: claim.throttled_count,
+      createdAt: claim.delivery_created_at,
+    },
     parseRetryPolicy(claim.retry_policy),
     now,
   );

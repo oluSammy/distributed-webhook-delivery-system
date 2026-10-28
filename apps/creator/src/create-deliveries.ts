@@ -65,8 +65,6 @@ export async function createDeliveries(sql: Sql): Promise<DeliveriesCreated> {
   return result ?? { events: 0, deliveries: 0 };
 }
 
-
-
 /**
  * 1. pending: take a batch - for update skip locked
  * It takes the oldest 20 unprocessed events. The partial index idx_events_pending_fanout only contains

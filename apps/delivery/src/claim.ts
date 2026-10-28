@@ -18,6 +18,7 @@ export type ClaimedDelivery = {
   event_created_at: Date;
   payload: string; // the event payload as JSON text, never parsed here
   attempt_count: number;
+  throttled_count: number;
   attempt_number: number; // this attempt: every earlier one, failed or throttled, plus 1
   url: string;
   timeout_ms: number;
@@ -78,7 +79,7 @@ export async function claimDeliveries(sql: Sql, claimedBy: string): Promise<Clai
     select c.delivery_id, c.delivery_created_at, c.endpoint_id, c.claim_token,
            d.event_id, ev.type as event_type, ev.created_at as event_created_at,
            ev.payload::text as payload,
-           d.attempt_count, d.attempt_count + d.throttled_count + 1 as attempt_number,
+           d.attempt_count, d.throttled_count, d.attempt_count + d.throttled_count + 1 as attempt_number,
            en.url, t.delivery_timeout_ms as timeout_ms, t.retry_policy, s.secrets
     from claimed c
     join deliveries d on d.id = c.delivery_id and d.created_at = c.delivery_created_at
