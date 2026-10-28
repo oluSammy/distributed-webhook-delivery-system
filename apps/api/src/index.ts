@@ -4,6 +4,7 @@ import { requireTenant } from "./middleware/auth";
 import { withDb } from "./middleware/db";
 import { createRouter } from "./router";
 import { deliveries } from "./routes/deliveries";
+import { dlq } from "./routes/dlq";
 import { endpoints } from "./routes/endpoints";
 import { events } from "./routes/events";
 
@@ -37,6 +38,7 @@ app.use("/api/*", withDb, requireTenant); // connection, then auth
 app.route("/api/events", events);
 app.route("/api/endpoints", endpoints);
 app.route("/api/deliveries", deliveries);
+app.route("/api/dlq", dlq);
 
 app.onError(handleError);
 

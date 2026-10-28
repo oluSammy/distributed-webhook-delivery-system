@@ -102,14 +102,21 @@ deliveries.openapi(getDelivery, async (c) => {
     throw new ApiError(404, "not_found", "Delivery not found");
   }
 
-  // Only after the tenant check above: attempts have no tenant_id of their own.
+  // Only after the tenant check above: attempts have no tenant_id of their own. A dead delivery's
+  // attempts move to dead_delivery_attempts when their partition is dropped, so read both.
+  // started_at >= created_at changes nothing but lets Postgres skip older partitions.
   const attempts = await sql<AttemptRow[]>`
-    select attempt_number, outcome, response_status, response_body_truncated, error_kind,
-            latency_ms, stale, started_at, finished_at
-    from delivery_attempts
-    where delivery_id = ${id}
-    order by attempt_number, started_at
-    `;
+      select attempt_number, outcome, response_status, response_body_truncated, error_kind,
+              latency_ms, stale, started_at, finished_at
+      from delivery_attempts
+      where delivery_id = ${id} and started_at >= ${row.created_at}
+      union all
+      select attempt_number, outcome, response_status, response_body_truncated, error_kind,
+              latency_ms, stale, started_at, finished_at
+      from dead_delivery_attempts
+      where delivery_id = ${id}
+      order by attempt_number, started_at
+      `;
   return c.json({ ...toResponse(row), attempts: attempts.map(toAttemptResponse) }, 200);
 });
 
