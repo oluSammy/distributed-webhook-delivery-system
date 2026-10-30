@@ -1,8 +1,11 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import type { Fragment, Sql } from "postgres";
+import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
 
 const MAX_PAGE = 100;
+const MAX_REDELIVER = 1000;
 
 const DeadDelivery = z.object({
   id: z.string(),
@@ -18,14 +21,29 @@ const DeadDelivery = z.object({
   last_error_kind: z.string().nullable(),
 });
 
-const ListQuery = z.object({
+// The filters the list and bulk redelivery share.
+const DeadFilters = z.object({
   endpoint_id: z.uuid().optional(),
   event_type: z.string().max(200).optional(),
   reason: z.string().max(100).optional(),
   since: z.iso.datetime({ offset: true }).optional(), // created at or after
   until: z.iso.datetime({ offset: true }).optional(), // created before
+});
+
+const ListQuery = DeadFilters.extend({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE).default(50),
   cursor: z.string().max(200).optional(), // next_cursor from the previous page
+});
+
+const RedeliverBody = DeadFilters.extend({
+  ids: z.array(z.uuid()).min(1).max(MAX_PAGE).optional(),
+  limit: z.number().int().min(1).max(MAX_REDELIVER).default(100),
+});
+
+const Redelivered = z.object({
+  id: z.string(), // the new delivery
+  redelivered_from: z.string(), // the dead one
+  created_at: z.string(),
 });
 
 const listDead = createRoute({
@@ -43,6 +61,35 @@ const listDead = createRoute({
             next_cursor: z.string().nullable(),
           }),
         },
+      },
+    },
+  },
+});
+
+const redeliverOne = createRoute({
+  method: "post",
+  path: "/{id}/redeliver",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    202: {
+      description: "A new delivery of the same event to the same endpoint, due now",
+      content: { "application/json": { schema: Redelivered } },
+    },
+  },
+});
+
+const redeliverMany = createRoute({
+  method: "post",
+  path: "/redeliver",
+  request: {
+    body: { content: { "application/json": { schema: RedeliverBody } }, required: true },
+  },
+  responses: {
+    202: {
+      description:
+        "Redelivers up to limit matching dead deliveries, newest first. Fewer than limit means none are left.",
+      content: {
+        "application/json": { schema: z.object({ deliveries: z.array(Redelivered) }) },
       },
     },
   },
@@ -94,13 +141,10 @@ dlq.openapi(listDead, async (c) => {
         limit 1
       ) last on true
       where d.tenant_id = ${c.get("tenantId")}
-        and d.state = 'dead'
-        ${query.endpoint_id === undefined ? sql`` : sql`and d.endpoint_id = ${query.endpoint_id}`}
-        ${query.event_type === undefined ? sql`` : sql`and ev.type = ${query.event_type}`}
-        ${query.reason === undefined ? sql`` : sql`and d.failure_reason = ${query.reason}`}
-        ${query.since === undefined ? sql`` : sql`and d.created_at >= ${query.since}`}
-        ${query.until === undefined ? sql`` : sql`and d.created_at < ${query.until}`}
-        ${after === null ? sql`` : sql`and (d.created_at, d.id) < (${after.position}::text::timestamptz, ${after.id})`}
+          and d.state = 'dead'
+          and d.resolution is null
+          ${deadFilters(sql, query)}
+          ${after === null ? sql`` : sql`and (d.created_at, d.id) < (${after.position}::text::timestamptz, ${after.id})`}
       order by d.created_at desc, d.id desc
       limit ${query.limit + 1}
     `;
@@ -110,6 +154,45 @@ dlq.openapi(listDead, async (c) => {
   const nextCursor = rows.length > query.limit && last ? encodeCursor(last) : null;
   return c.json({ deliveries: page.map(toResponse), next_cursor: nextCursor }, 200);
 });
+
+dlq.openapi(redeliverOne, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+
+  const [row] = await redeliver(sql, tenantId, sql`and d.id = ${id}`, 1);
+  if (!row) {
+    throw await notRedeliverable(sql, tenantId, id);
+  }
+  c.executionCtx.waitUntil(wakeDispatcher(c.env));
+  return c.json(toRedeliveredResponse(row), 202);
+});
+
+dlq.openapi(redeliverMany, async (c) => {
+  const body = c.req.valid("json");
+  const sql = c.get("sql");
+
+  const condition = sql`
+      ${body.ids === undefined ? sql`` : sql`and d.id in ${sql(body.ids)}`}
+      ${deadFilters(sql, body)}
+    `;
+  const rows = await redeliver(sql, c.get("tenantId"), condition, body.limit);
+  if (rows.length > 0) {
+    c.executionCtx.waitUntil(wakeDispatcher(c.env));
+  }
+  return c.json({ deliveries: rows.map(toRedeliveredResponse) }, 202);
+});
+
+// The DeadFilters that were given, as SQL conditions on d (deliveries) and ev (events).
+function deadFilters(sql: Sql, filters: z.infer<typeof DeadFilters>): Fragment {
+  return sql`
+      ${filters.endpoint_id === undefined ? sql`` : sql`and d.endpoint_id = ${filters.endpoint_id}`}
+      ${filters.event_type === undefined ? sql`` : sql`and ev.type = ${filters.event_type}`}
+      ${filters.reason === undefined ? sql`` : sql`and d.failure_reason = ${filters.reason}`}
+      ${filters.since === undefined ? sql`` : sql`and d.created_at >= ${filters.since}`}
+      ${filters.until === undefined ? sql`` : sql`and d.created_at < ${filters.until}`}
+    `;
+}
 
 // The cursor is the last row's position and id, so the next page starts right after it even when
 // several deliveries were created in the same microsecond. Base64url keeps it opaque and URL-safe.
@@ -145,5 +228,88 @@ function toResponse(row: DeadDeliveryRow) {
     finished_at: row.finished_at.toISOString(),
     last_status: row.last_status,
     last_error_kind: row.last_error_kind,
+  };
+}
+
+type RedeliveredRow = { id: string; redelivered_from: string; created_at: Date };
+
+// Redelivers the matching dead deliveries still in the DLQ. Each one is marked redelivered and gets
+// a new delivery of the same event to the same endpoint: redelivered_from points back, the retry
+// budget starts again, and its queue entry is due now. The dead one stays dead.
+// for update locks the picked rows, so two requests for the same delivery can't both redeliver
+// it: the second waits, then sees it resolved and skips it. A deleted endpoint, or an event no
+// longer stored, is skipped too (the join finds nothing).
+function redeliver(sql: Sql, tenantId: string, condition: Fragment, limit: number) {
+  return sql<RedeliveredRow[]>`
+      with picked as (
+        select d.id, d.created_at
+        from deliveries d
+        join events ev on ev.id = d.event_id and ev.created_at = d.event_created_at
+        join endpoints en on en.id = d.endpoint_id and en.state <> 'deleted'
+        where d.tenant_id = ${tenantId}
+          and d.state = 'dead'
+          and d.resolution is null
+          ${condition}
+        order by d.created_at desc, d.id desc
+        limit ${limit}
+        for update of d
+      ),
+      resolved as (
+        update deliveries d
+        set resolution = 'redelivered', resolved_at = now()
+        from picked p
+        where d.id = p.id and d.created_at = p.created_at
+        returning d.id, d.tenant_id, d.event_id, d.event_created_at, d.endpoint_id
+      ),
+      created as (
+        insert into deliveries (tenant_id, event_id, event_created_at, endpoint_id, redelivered_from)
+        select tenant_id, event_id, event_created_at, endpoint_id, id from resolved
+        returning id, created_at, tenant_id, endpoint_id, redelivered_from
+      ),
+      queued as (
+        insert into delivery_queue (delivery_id, delivery_created_at, tenant_id, endpoint_id, next_attempt_at)
+        select id, created_at, tenant_id, endpoint_id, now() from created
+      ),
+      tenants as (
+        insert into tenants_with_work (tenant_id)
+        select distinct tenant_id from created
+        on conflict do nothing
+      )
+      select id, redelivered_from, created_at from created
+    `;
+}
+
+// Works out why redeliver found nothing for this id, for the error.
+async function notRedeliverable(sql: Sql, tenantId: string, id: string): Promise<ApiError> {
+  const [row] = await sql<{ state: string; resolution: string | null; endpoint_state: string }[]>`
+      select d.state, d.resolution, en.state as endpoint_state
+      from deliveries d
+      join endpoints en on en.id = d.endpoint_id
+      where d.tenant_id = ${tenantId} and d.id = ${id}
+    `;
+  if (!row) {
+    return new ApiError(404, "not_found", "Delivery not found");
+  }
+  if (row.state !== "dead") {
+    return new ApiError(
+      409,
+      "not_dead",
+      `Only dead deliveries can be redelivered; this one is ${row.state}`,
+    );
+  }
+  if (row.resolution !== null) {
+    return new ApiError(409, "already_resolved", `This delivery was already ${row.resolution}`);
+  }
+  if (row.endpoint_state === "deleted") {
+    return new ApiError(409, "endpoint_deleted", "This delivery's endpoint has been deleted");
+  }
+  return new ApiError(409, "event_expired", "This delivery's event is no longer stored");
+}
+
+function toRedeliveredResponse(row: RedeliveredRow) {
+  return {
+    id: row.id,
+    redelivered_from: row.redelivered_from,
+    created_at: row.created_at.toISOString(),
   };
 }

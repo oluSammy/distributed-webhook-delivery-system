@@ -12,6 +12,8 @@ const Delivery = z.object({
   throttled_count: z.number(),
   failure_reason: z.string().nullable(),
   redelivered_from: z.string().nullable(),
+  resolution: z.string().nullable(), // a dead delivery: redelivered or discarded, null while in the DLQ
+  resolved_at: z.string().nullable(),
   next_attempt_at: z.string().nullable(),
   in_flight: z.boolean(),
   created_at: z.string(),
@@ -67,6 +69,8 @@ type DeliveryRow = {
   throttled_count: number;
   failure_reason: string | null;
   redelivered_from: string | null;
+  resolution: string | null;
+  resolved_at: Date | null;
   next_attempt_at: Date | null;
   in_flight: boolean;
   created_at: Date;
@@ -125,8 +129,8 @@ deliveries.openapi(getDelivery, async (c) => {
 function selectDeliveries(sql: Sql, tenantId: string, condition: Fragment) {
   return sql<DeliveryRow[]>`
     select d.id, d.event_id, d.endpoint_id, d.state, d.attempt_count, d.throttled_count,
-            d.failure_reason, d.redelivered_from, q.next_attempt_at,
-            q.claim_token is not null as in_flight, d.created_at, d.finished_at
+      d.failure_reason, d.redelivered_from, d.resolution, d.resolved_at, q.next_attempt_at,
+      q.claim_token is not null as in_flight, d.created_at, d.finished_at
     from deliveries d
     left join delivery_queue q on q.delivery_id = d.id
     where d.tenant_id = ${tenantId}
@@ -145,6 +149,8 @@ function toResponse(row: DeliveryRow) {
     throttled_count: row.throttled_count,
     failure_reason: row.failure_reason,
     redelivered_from: row.redelivered_from,
+    resolution: row.resolution,
+    resolved_at: row.resolved_at?.toISOString() ?? null,
     next_attempt_at: row.next_attempt_at?.toISOString() ?? null,
     in_flight: row.in_flight,
     created_at: row.created_at.toISOString(),

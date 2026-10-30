@@ -1,8 +1,8 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { firstRow, requestHash } from "@wds/core";
-import type { DispatcherApi } from "@wds/dispatcher/contract";
 import { bodyLimit } from "hono/body-limit";
 import type { Sql } from "postgres";
+import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
 
@@ -255,14 +255,6 @@ async function insertEventOnce(
 
     return { id: existing.event_id, createdAt: existing.event_created_at, replayed: true };
   });
-}
-
-function wakeDispatcher(env: Env): Promise<unknown> {
-  const dispatchers = env.DISPATCHER as DurableObjectNamespace<DispatcherApi>;
-  return dispatchers
-    .getByName("shard-0")
-    .wake()
-    .catch((err) => console.error("wake failed", err));
 }
 
 async function requireKnownTypes(sql: Sql, tenantId: string, types: string[]): Promise<void> {
