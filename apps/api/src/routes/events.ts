@@ -32,6 +32,14 @@ const EventBatchAccepted = z.object({
   events: z.array(EventAccepted),
 });
 
+const Event = z.object({
+  id: z.string(),
+  type: z.string(),
+  payload: z.record(z.string(), z.json()),
+  created_at: z.string(),
+  deliveries_created_at: z.string().nullable(), // when its deliveries were created; null until then
+});
+
 const CreateEventHeaders = z.object({
   "idempotency-key": z.string().min(1).max(255).optional(),
 });
@@ -50,6 +58,26 @@ const createEvent = createRoute({
     },
   },
 });
+
+const getEvent = createRoute({
+  method: "get",
+  path: "/{id}",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    200: {
+      description: "One event, with the payload its deliveries send",
+      content: { "application/json": { schema: Event } },
+    },
+  },
+});
+
+type EventRow = {
+  id: string;
+  type: string;
+  payload: EventPayload;
+  created_at: Date;
+  deliveries_created_at: Date | null;
+};
 
 const createEventBatch = createRoute({
   method: "post",
@@ -120,6 +148,32 @@ events.openapi(createEventBatch, async (c) => {
       })),
     },
     202,
+  );
+});
+
+events.openapi(getEvent, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+
+  // Only the id is known, not created_at, so Postgres checks each partition's primary key index
+  // for it: one quick lookup per day of retention.
+  const [row] = await sql<EventRow[]>`
+    select id, type, payload, created_at, deliveries_created_at
+    from events
+    where tenant_id = ${c.get("tenantId")} and id = ${id}
+  `;
+  if (!row) {
+    throw new ApiError(404, "not_found", "Event not found");
+  }
+  return c.json(
+    {
+      id: row.id,
+      type: row.type,
+      payload: row.payload,
+      created_at: row.created_at.toISOString(),
+      deliveries_created_at: row.deliveries_created_at?.toISOString() ?? null,
+    },
+    200,
   );
 });
 
