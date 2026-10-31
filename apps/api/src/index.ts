@@ -1,8 +1,9 @@
 import { createDb } from "@wds/db";
 import { handleError } from "./errors";
-import { requireTenant } from "./middleware/auth";
+import { requireOperator, requireTenant } from "./middleware/auth";
 import { withDb } from "./middleware/db";
 import { createRouter } from "./router";
+import { admin } from "./routes/admin";
 import { deliveries } from "./routes/deliveries";
 import { dlq } from "./routes/dlq";
 import { endpoints } from "./routes/endpoints";
@@ -39,6 +40,9 @@ app.route("/api/events", events);
 app.route("/api/endpoints", endpoints);
 app.route("/api/deliveries", deliveries);
 app.route("/api/dlq", dlq);
+
+app.use("/admin/*", withDb, requireOperator);
+app.route("/admin", admin);
 
 app.onError(handleError);
 

@@ -51,7 +51,9 @@ try {
   // can only be shown when they're created, so existing tenants are left alone.
   const printed = await sql.begin(async (tx) => {
     const lines: string[] = [];
-    const [operator] = await tx`select 1 from api_keys where scope = 'operator'`;
+    const [operator] = await tx`
+        select 1 from api_keys where scope = 'operator' and revoked_at is null
+      `;
     if (!operator) {
       const operatorKey = await generateApiKey("operator");
       await tx`
