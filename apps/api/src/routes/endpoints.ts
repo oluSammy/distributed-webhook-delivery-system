@@ -9,6 +9,7 @@ import {
 import type { Sql } from "postgres";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
+import { parkDeliveries, unparkDeliveries } from "../parking";
 import { createRouter } from "../router";
 
 const MAX_SUBSCRIPTIONS = 50;
@@ -205,56 +206,39 @@ endpoints.openapi(getEndpoint, async (c) => {
   return c.json(toResponse(await findEndpoint(c.get("sql"), c.get("tenantId"), id)), 200);
 });
 
-// Pausing a disabled endpoint replaces its breaker state, so probe_at goes too. Its waiting
-// deliveries are parked in the same statement; ones being sent right now still go.
+// Pausing a disabled endpoint replaces its breaker state, so probe_at goes too. The flag is set
+// first, so the Delivery Worker parks anything claimed from now on, then the waiting deliveries
+// are parked. Parking runs even if it was already paused, so a retry finishes the job.
 endpoints.openapi(pauseEndpoint, async (c) => {
   const { id } = c.req.valid("param");
   const sql = c.get("sql");
   const tenantId = c.get("tenantId");
   await sql`
-      with paused as (
         update endpoints
         set state = 'paused', probe_at = null
         where id = ${id} and tenant_id = ${tenantId} and state in ('active', 'disabled')
-        returning id
-      )
-      update delivery_queue
-      set next_attempt_at = 'infinity'
-      where endpoint_id in (select id from paused)
-        and claim_token is null
-        and next_attempt_at < 'infinity'
-    `;
-  return c.json(toResponse(await findEndpoint(sql, tenantId, id)), 200);
+      `;
+  const endpoint = await findEndpoint(sql, tenantId, id);
+  await parkDeliveries(sql, [id]);
+  return c.json(toResponse(endpoint), 200);
 });
 
-// Two statements in one transaction: the second must see the endpoint already active, so that
-// endpoint_holds only lets go of rows nothing else holds (its tenant, or everything, may still be
-// paused).
+// The flag is cleared first, so endpoint_holds already sees it when the parked deliveries are let
+// go (except any its tenant, or a global pause, still holds). The un-park runs even if it wasn't
+// paused, so a retry finishes the job.
 endpoints.openapi(resumeEndpoint, async (c) => {
   const { id } = c.req.valid("param");
   const sql = c.get("sql");
   const tenantId = c.get("tenantId");
-  const unparked = await sql.begin(async (tx) => {
-    const resumed = await tx`
+  await sql`
         update endpoints set state = 'active'
         where id = ${id} and tenant_id = ${tenantId} and state = 'paused'
       `;
-    if (resumed.count === 0) {
-      return 0;
-    }
-    const rows = await tx`
-        update delivery_queue q
-        set next_attempt_at = now()
-        from endpoint_holds h
-        where q.endpoint_id = ${id} and q.next_attempt_at = 'infinity'
-          and h.endpoint_id = q.endpoint_id and not h.disabled and not h.paused
-      `;
-    return rows.count;
-  });
-  if (unparked > 0) {
+  const endpoint = await findEndpoint(sql, tenantId, id);
+  if ((await unparkDeliveries(sql, [id])) > 0) {
     c.executionCtx.waitUntil(wakeDispatcher(c.env));
   }
-  return c.json(toResponse(await findEndpoint(sql, tenantId, id)), 200);
+  return c.json(toResponse(endpoint), 200);
 });
 
 // Deleting keeps the row (deliveries refer to it) and cancels every pending delivery, parked ones
