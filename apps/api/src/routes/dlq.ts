@@ -5,7 +5,7 @@ import { ApiError } from "../errors";
 import { createRouter } from "../router";
 
 const MAX_PAGE = 100;
-const MAX_REDELIVER = 1000;
+const MAX_BULK = 1000;
 
 const DeadDelivery = z.object({
   id: z.string(),
@@ -21,7 +21,7 @@ const DeadDelivery = z.object({
   last_error_kind: z.string().nullable(),
 });
 
-// The filters the list and bulk redelivery share.
+// The filters the list and the bulk actions share.
 const DeadFilters = z.object({
   endpoint_id: z.uuid().optional(),
   event_type: z.string().max(200).optional(),
@@ -35,9 +35,15 @@ const ListQuery = DeadFilters.extend({
   cursor: z.string().max(200).optional(), // next_cursor from the previous page
 });
 
-const RedeliverBody = DeadFilters.extend({
+// Bulk redeliver and discard: the deliveries in ids (if given) that match the filters.
+const BulkBody = DeadFilters.extend({
   ids: z.array(z.uuid()).min(1).max(MAX_PAGE).optional(),
-  limit: z.number().int().min(1).max(MAX_REDELIVER).default(100),
+  limit: z.number().int().min(1).max(MAX_BULK).default(100),
+});
+
+const Discarded = z.object({
+  id: z.string(),
+  resolved_at: z.string(),
 });
 
 const Redelivered = z.object({
@@ -82,7 +88,7 @@ const redeliverMany = createRoute({
   method: "post",
   path: "/redeliver",
   request: {
-    body: { content: { "application/json": { schema: RedeliverBody } }, required: true },
+    body: { content: { "application/json": { schema: BulkBody } }, required: true },
   },
   responses: {
     202: {
@@ -94,6 +100,42 @@ const redeliverMany = createRoute({
     },
   },
 });
+
+const discardOne = createRoute({
+  method: "post",
+  path: "/{id}/discard",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    200: {
+      description: "The dead delivery leaves the DLQ without being sent again",
+      content: { "application/json": { schema: Discarded } },
+    },
+  },
+});
+
+const discardMany = createRoute({
+  method: "post",
+  path: "/discard",
+  request: {
+    body: { content: { "application/json": { schema: BulkBody } }, required: true },
+  },
+  responses: {
+    200: {
+      description:
+        "Discards up to limit matching dead deliveries, newest first. Fewer than limit means none are left.",
+      content: {
+        "application/json": { schema: z.object({ deliveries: z.array(Discarded) }) },
+      },
+    },
+  },
+});
+
+function bulkCondition(sql: Sql, body: z.infer<typeof BulkBody>): Fragment {
+  return sql`
+    ${body.ids === undefined ? sql`` : sql`and d.id in ${sql(body.ids)}`}
+    ${deadFilters(sql, body)}
+  `;
+}
 
 type DeadDeliveryRow = {
   id: string;
@@ -162,7 +204,7 @@ dlq.openapi(redeliverOne, async (c) => {
 
   const [row] = await redeliver(sql, tenantId, sql`and d.id = ${id}`, 1);
   if (!row) {
-    throw await notRedeliverable(sql, tenantId, id);
+    throw await cannotResolve(sql, tenantId, id, "redelivered");
   }
   c.executionCtx.waitUntil(wakeDispatcher(c.env));
   return c.json(toRedeliveredResponse(row), 202);
@@ -172,15 +214,30 @@ dlq.openapi(redeliverMany, async (c) => {
   const body = c.req.valid("json");
   const sql = c.get("sql");
 
-  const condition = sql`
-      ${body.ids === undefined ? sql`` : sql`and d.id in ${sql(body.ids)}`}
-      ${deadFilters(sql, body)}
-    `;
-  const rows = await redeliver(sql, c.get("tenantId"), condition, body.limit);
+  const rows = await redeliver(sql, c.get("tenantId"), bulkCondition(sql, body), body.limit);
   if (rows.length > 0) {
     c.executionCtx.waitUntil(wakeDispatcher(c.env));
   }
   return c.json({ deliveries: rows.map(toRedeliveredResponse) }, 202);
+});
+
+dlq.openapi(discardOne, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+
+  const [row] = await discard(sql, tenantId, sql`and d.id = ${id}`, 1);
+  if (!row) {
+    throw await cannotResolve(sql, tenantId, id, "discarded");
+  }
+  return c.json(toDiscardedResponse(row), 200);
+});
+
+dlq.openapi(discardMany, async (c) => {
+  const body = c.req.valid("json");
+  const sql = c.get("sql");
+  const rows = await discard(sql, c.get("tenantId"), bulkCondition(sql, body), body.limit);
+  return c.json({ deliveries: rows.map(toDiscardedResponse) }, 200);
 });
 
 // The DeadFilters that were given, as SQL conditions on d (deliveries) and ev (events).
@@ -280,7 +337,12 @@ function redeliver(sql: Sql, tenantId: string, condition: Fragment, limit: numbe
 }
 
 // Works out why redeliver found nothing for this id, for the error.
-async function notRedeliverable(sql: Sql, tenantId: string, id: string): Promise<ApiError> {
+async function cannotResolve(
+  sql: Sql,
+  tenantId: string,
+  id: string,
+  resolution: "redelivered" | "discarded",
+): Promise<ApiError> {
   const [row] = await sql<{ state: string; resolution: string | null; endpoint_state: string }[]>`
       select d.state, d.resolution, en.state as endpoint_state
       from deliveries d
@@ -294,7 +356,7 @@ async function notRedeliverable(sql: Sql, tenantId: string, id: string): Promise
     return new ApiError(
       409,
       "not_dead",
-      `Only dead deliveries can be redelivered; this one is ${row.state}`,
+      `Only dead deliveries can be ${resolution}; this one is ${row.state}`,
     );
   }
   if (row.resolution !== null) {
@@ -312,4 +374,35 @@ function toRedeliveredResponse(row: RedeliveredRow) {
     redelivered_from: row.redelivered_from,
     created_at: row.created_at.toISOString(),
   };
+}
+
+type DiscardedRow = { id: string; resolved_at: Date };
+
+// Discards the matching dead deliveries still in the DLQ: they're marked discarded and leave it,
+// and nothing is sent. Locked like redeliver, so a delivery is resolved only once. The event join
+// is a left join, so a delivery whose event is no longer stored can still be discarded.
+function discard(sql: Sql, tenantId: string, condition: Fragment, limit: number) {
+  return sql<DiscardedRow[]>`
+      with picked as (
+        select d.id, d.created_at
+        from deliveries d
+        left join events ev on ev.id = d.event_id and ev.created_at = d.event_created_at
+        where d.tenant_id = ${tenantId}
+          and d.state = 'dead'
+          and d.resolution is null
+          ${condition}
+        order by d.created_at desc, d.id desc
+        limit ${limit}
+        for update of d
+      )
+      update deliveries d
+      set resolution = 'discarded', resolved_at = now()
+      from picked p
+      where d.id = p.id and d.created_at = p.created_at
+      returning d.id, d.resolved_at
+    `;
+}
+
+function toDiscardedResponse(row: DiscardedRow) {
+  return { id: row.id, resolved_at: row.resolved_at.toISOString() };
 }
