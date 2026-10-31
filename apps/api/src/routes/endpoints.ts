@@ -7,6 +7,7 @@ import {
   importMasterKey,
 } from "@wds/core";
 import type { Sql } from "postgres";
+import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
 
@@ -80,6 +81,46 @@ const getEndpoint = createRoute({
     200: {
       description: "One endpoint",
       content: { "application/json": { schema: Endpoint } },
+    },
+  },
+});
+
+const pauseEndpoint = createRoute({
+  method: "post",
+  path: "/{id}/pause",
+  request: { params: EndpointParams },
+  responses: {
+    200: {
+      description: "The endpoint, paused: nothing is sent to it until it's resumed",
+      content: { "application/json": { schema: Endpoint } },
+    },
+  },
+});
+
+const resumeEndpoint = createRoute({
+  method: "post",
+  path: "/{id}/resume",
+  request: { params: EndpointParams },
+  responses: {
+    200: {
+      description: "The endpoint, active again: its waiting deliveries are due now",
+      content: { "application/json": { schema: Endpoint } },
+    },
+  },
+});
+
+const deleteEndpoint = createRoute({
+  method: "delete",
+  path: "/{id}",
+  request: { params: EndpointParams },
+  responses: {
+    200: {
+      description: "Endpoint deleted, and its pending deliveries cancelled",
+      content: {
+        "application/json": {
+          schema: z.object({ id: z.string(), cancelled_deliveries: z.number() }),
+        },
+      },
     },
   },
 });
@@ -161,12 +202,102 @@ endpoints.openapi(listEndpoints, async (c) => {
 });
 endpoints.openapi(getEndpoint, async (c) => {
   const { id } = c.req.valid("param");
-  const [row] = await selectEndpoints(c.get("sql"), c.get("tenantId"), id);
+  return c.json(toResponse(await findEndpoint(c.get("sql"), c.get("tenantId"), id)), 200);
+});
+
+// Pausing a disabled endpoint replaces its breaker state, so probe_at goes too. Its waiting
+// deliveries are parked in the same statement; ones being sent right now still go.
+endpoints.openapi(pauseEndpoint, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+  await sql`
+      with paused as (
+        update endpoints
+        set state = 'paused', probe_at = null
+        where id = ${id} and tenant_id = ${tenantId} and state in ('active', 'disabled')
+        returning id
+      )
+      update delivery_queue
+      set next_attempt_at = 'infinity'
+      where endpoint_id in (select id from paused)
+        and claim_token is null
+        and next_attempt_at < 'infinity'
+    `;
+  return c.json(toResponse(await findEndpoint(sql, tenantId, id)), 200);
+});
+
+// Two statements in one transaction: the second must see the endpoint already active, so that
+// endpoint_holds only lets go of rows nothing else holds (its tenant, or everything, may still be
+// paused).
+endpoints.openapi(resumeEndpoint, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+  const unparked = await sql.begin(async (tx) => {
+    const resumed = await tx`
+        update endpoints set state = 'active'
+        where id = ${id} and tenant_id = ${tenantId} and state = 'paused'
+      `;
+    if (resumed.count === 0) {
+      return 0;
+    }
+    const rows = await tx`
+        update delivery_queue q
+        set next_attempt_at = now()
+        from endpoint_holds h
+        where q.endpoint_id = ${id} and q.next_attempt_at = 'infinity'
+          and h.endpoint_id = q.endpoint_id and not h.disabled and not h.paused
+      `;
+    return rows.count;
+  });
+  if (unparked > 0) {
+    c.executionCtx.waitUntil(wakeDispatcher(c.env));
+  }
+  return c.json(toResponse(await findEndpoint(sql, tenantId, id)), 200);
+});
+
+// Deleting keeps the row (deliveries refer to it) and cancels every pending delivery, parked ones
+// included. One being sent right now finds its queue row gone, so its outcome is recorded as stale.
+endpoints.openapi(deleteEndpoint, async (c) => {
+  const { id } = c.req.valid("param");
+  const [row] = await c.get("sql")<{ deleted: boolean; cancelled: number }[]>`
+      with deleted as (
+        update endpoints
+        set state = 'deleted', probe_at = null
+        where id = ${id} and tenant_id = ${c.get("tenantId")} and state <> 'deleted'
+        returning id
+      ),
+      dequeued as (
+        delete from delivery_queue q
+        using deleted
+        where q.endpoint_id = deleted.id
+        returning q.delivery_id, q.delivery_created_at
+      ),
+      cancelled as (
+        update deliveries d
+        set state = 'cancelled', finished_at = now()
+        from dequeued
+        where d.id = dequeued.delivery_id and d.created_at = dequeued.delivery_created_at
+          and d.state = 'pending'
+        returning d.id
+      )
+      select exists (select 1 from deleted) as deleted,
+             (select count(*) from cancelled)::int as cancelled
+    `;
+  if (!row?.deleted) {
+    throw new ApiError(404, "not_found", "Endpoint not found");
+  }
+  return c.json({ id, cancelled_deliveries: row.cancelled }, 200);
+});
+
+async function findEndpoint(sql: Sql, tenantId: string, id: string): Promise<EndpointRow> {
+  const [row] = await selectEndpoints(sql, tenantId, id);
   if (!row) {
     throw new ApiError(404, "not_found", "Endpoint not found");
   }
-  return c.json(toResponse(row), 200);
-});
+  return row;
+}
 
 function selectEndpoints(sql: Sql, tenantId: string, endpointId?: string) {
   return sql<EndpointRow[]>`
