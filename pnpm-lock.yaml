@@ -76,6 +76,9 @@ importers:
       '@wds/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@wds/limiter':
+        specifier: workspace:*
+        version: link:../limiter
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -107,6 +110,16 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+    devDependencies:
+      wrangler:
+        specifier: ^4.147.0
+        version: 4.147.0(@cloudflare/workers-types@5.20261006.1)(@types/node@26.6.4)
+
+  apps/limiter:
+    dependencies:
+      '@wds/core':
+        specifier: workspace:*
+        version: link:../../packages/core
     devDependencies:
       wrangler:
         specifier: ^4.147.0

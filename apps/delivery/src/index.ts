@@ -1,6 +1,15 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { classify, importMasterKey, type NextStep, nextStep, parseRetryPolicy } from "@wds/core";
+import {
+  type Acquired,
+  classify,
+  type EndpointLimiter,
+  importMasterKey,
+  type NextStep,
+  nextStep,
+  parseRetryPolicy,
+} from "@wds/core";
 import { createDb } from "@wds/db";
+import type { LimiterApi } from "@wds/limiter/contract";
 import type { Sql } from "postgres";
 import { type ClaimedDelivery, claimDeliveries, LEASE_SECONDS } from "./claim";
 import type { BatchResult, DeliveryApi } from "./contract";
@@ -14,6 +23,10 @@ const MAX_IN_FLIGHT = 6;
 // Time kept back at the end of the lease for recording an outcome.
 const RECORD_MARGIN_MS = 5000;
 
+// When the limiter can't be reached, the delivery waits this long rather than being sent with no
+// limits: an outage holds deliveries back instead of letting them flood the endpoint.
+const LIMITER_DOWN_WAIT_MS = 10_000;
+
 export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryApi {
   async runBatch(shard: number): Promise<BatchResult> {
     const sql = createDb(this.env.HYPERDRIVE.connectionString);
@@ -23,14 +36,22 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
       const leaseEndsAt = Date.now() + LEASE_SECONDS * 1000;
       console.log(`delivery ${callId}: claimed ${claims.length}`);
 
-      const unsent = new Set(claims);
+      // Claims to give back unsent, with when each is due again (null: now). Every claim starts
+      // here and leaves when it's sent; one the limiter holds back gets the limiter's time.
+      const unsent = new Map<ClaimedDelivery, Date | null>(claims.map((claim) => [claim, null]));
       try {
         if (claims.length > 0) {
           const masters = new Map([[1, await importMasterKey(this.env.MASTER_KEY_V1, 1)]]);
           const sender = new Sender(masters, this.env.ALLOW_LOCAL_ENDPOINTS === "true");
+          const limiter = durableLimiter(this.env);
           await forEachLimited(claims, MAX_IN_FLIGHT, async (claim) => {
             // Too close to the end of the lease: another call could claim it while we send.
             if (Date.now() + claim.timeout_ms + RECORD_MARGIN_MS > leaseEndsAt) {
+              return;
+            }
+            const slot = await acquireSlot(limiter, claim);
+            if (!slot.go) {
+              unsent.set(claim, new Date(slot.retryAt));
               return;
             }
             unsent.delete(claim);
@@ -39,12 +60,19 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
             } catch (error) {
               // The claim stays leased and comes back when the lease runs out.
               console.error(`delivery ${claim.delivery_id}: failed to deliver`, error);
+            } finally {
+              // If this fails, the slot frees itself when its lease ends.
+              await limiter
+                .release(claim.endpoint_id, slot.slotId)
+                .catch((error) =>
+                  console.error(`delivery ${claim.delivery_id}: release failed`, error),
+                );
             }
           });
         }
       } finally {
         if (unsent.size > 0) {
-          await releaseClaims(sql, [...unsent]).catch((error) =>
+          await releaseClaims(sql, unsent).catch((error) =>
             console.error(`delivery ${callId}: failed to release ${unsent.size} claims`, error),
           );
         }
@@ -60,6 +88,38 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
 
   override async fetch(): Promise<Response> {
     return new Response("Not found", { status: 404 });
+  }
+}
+
+// The limiter on Cloudflare: one EndpointLimiter Durable Object per endpoint, named by its id.
+function durableLimiter(env: Env): EndpointLimiter {
+  const limiters = env.LIMITER as DurableObjectNamespace<LimiterApi>;
+  return {
+    acquire: (endpointId, limits, leaseMs) =>
+      limiters.getByName(endpointId).acquire(limits, leaseMs),
+    release: (endpointId, slotId) => limiters.getByName(endpointId).release(slotId),
+  };
+}
+
+// Asks the endpoint's limiter whether this delivery can be sent now. The slot is leased for the
+// send's timeout plus the time kept for recording, so a slot this call never releases frees itself.
+async function acquireSlot(limiter: EndpointLimiter, claim: ClaimedDelivery): Promise<Acquired> {
+  const limits = { ratePerSecond: claim.rate_limit_per_s, concurrency: claim.concurrency_limit };
+  try {
+    const slot = await limiter.acquire(
+      claim.endpoint_id,
+      limits,
+      claim.timeout_ms + RECORD_MARGIN_MS,
+    );
+    if (!slot.go) {
+      console.log(
+        `delivery ${claim.delivery_id}: limiter says wait until ${new Date(slot.retryAt).toISOString()}`,
+      );
+    }
+    return slot;
+  } catch (error) {
+    console.error(`delivery ${claim.delivery_id}: limiter unreachable, waiting`, error);
+    return { go: false, retryAt: Date.now() + LIMITER_DOWN_WAIT_MS };
   }
 }
 

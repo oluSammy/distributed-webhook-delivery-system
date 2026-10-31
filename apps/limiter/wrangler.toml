@@ -1,0 +1,14 @@
+name = "wds-limiter"
+main = "src/index.ts"
+compatibility_date = "2026-08-15"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
+
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "EndpointLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["EndpointLimiter"]

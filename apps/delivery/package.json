@@ -12,6 +12,7 @@
   "dependencies": {
     "@wds/core": "workspace:*",
     "@wds/db": "workspace:*",
+    "@wds/limiter": "workspace:*",
     "postgres": "^3.4.9"
   },
   "devDependencies": {

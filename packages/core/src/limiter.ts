@@ -7,6 +7,13 @@ export type EndpointLimits = {
 // Send now, holding a slot until it's released; or don't send before retryAt (ms since the epoch).
 export type Acquired = { go: true; slotId: string } | { go: false; retryAt: number };
 
+// What the Delivery Worker asks before each send, and tells after it. On Cloudflare it's one
+// Durable Object per endpoint; elsewhere it could be backed by Redis.
+export interface EndpointLimiter {
+  acquire(endpointId: string, limits: EndpointLimits, leaseMs: number): Promise<Acquired>;
+  release(endpointId: string, slotId: string): Promise<void>;
+}
+
 // When every slot is taken, how long a delivery waits (less if a lease ends sooner). A slot usually
 // frees when a send finishes, which could be any moment, so this is a guess: short enough to keep
 // the endpoint's backlog moving, long enough that the delivery isn't back asking straight away.

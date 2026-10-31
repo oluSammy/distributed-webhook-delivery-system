@@ -10,6 +10,11 @@ binding = "HYPERDRIVE"
 id = "local-dev-placeholder"
 localConnectionString = "postgres://webhooks:webhooks@localhost:5433/webhooks"
 
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "EndpointLimiter"
+script_name = "wds-limiter"
+
 [secrets]
 required = ["MASTER_KEY_V1"]
 

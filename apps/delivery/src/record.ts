@@ -76,13 +76,22 @@ export async function recordOutcome(
   return row?.applied ?? false;
 }
 
-// Gives back claims that were never sent, so they're due again now instead of when the lease runs out.
-export async function releaseClaims(sql: Sql, claims: readonly ClaimedDelivery[]): Promise<void> {
-  const rows = claims.map(({ delivery_id, claim_token }) => ({ delivery_id, claim_token }));
+// Gives back claims that weren't sent, due again at the time given (now when it's null) instead
+// of when the lease runs out. No attempt is recorded and no budget is used.
+export async function releaseClaims(
+  sql: Sql,
+  claims: ReadonlyMap<ClaimedDelivery, Date | null>,
+): Promise<void> {
+  const rows = [...claims].map(([{ delivery_id, claim_token }, dueAt]) => ({
+    delivery_id,
+    claim_token,
+    due_at: dueAt,
+  }));
   await sql`
       update delivery_queue q
-      set next_attempt_at = now(), claim_token = null, claimed_by = null
-      from jsonb_to_recordset(${sql.json(rows)}) as r(delivery_id uuid, claim_token uuid)
+      set next_attempt_at = coalesce(r.due_at, now()), claim_token = null, claimed_by = null
+      from jsonb_to_recordset(${sql.json(rows)})
+        as r(delivery_id uuid, claim_token uuid, due_at timestamptz)
       where q.delivery_id = r.delivery_id and q.claim_token = r.claim_token
     `;
 }

@@ -21,6 +21,8 @@ export type ClaimedDelivery = {
   throttled_count: number;
   attempt_number: number; // this attempt: every earlier one, failed or throttled, plus 1
   url: string;
+  rate_limit_per_s: number;
+  concurrency_limit: number;
   timeout_ms: number;
   retry_policy: unknown; // the tenant's stored policy, checked by parseRetryPolicy
   secrets: StoredSecret[]; // every unexpired secret, oldest first
@@ -77,10 +79,11 @@ export async function claimDeliveries(sql: Sql, claimedBy: string): Promise<Clai
       where w.tenant_id = t.tenant_id
     )
     select c.delivery_id, c.delivery_created_at, c.endpoint_id, c.claim_token,
-           d.event_id, ev.type as event_type, ev.created_at as event_created_at,
-           ev.payload::text as payload,
-           d.attempt_count, d.throttled_count, d.attempt_count + d.throttled_count + 1 as attempt_number,
-           en.url, t.delivery_timeout_ms as timeout_ms, t.retry_policy, s.secrets
+             d.event_id, ev.type as event_type, ev.created_at as event_created_at,
+             ev.payload::text as payload,
+             d.attempt_count, d.throttled_count, d.attempt_count + d.throttled_count + 1 as attempt_number,
+             en.url, en.rate_limit_per_s, en.concurrency_limit,
+             t.delivery_timeout_ms as timeout_ms, t.retry_policy, s.secrets
     from claimed c
     join deliveries d on d.id = c.delivery_id and d.created_at = c.delivery_created_at
     join events ev on ev.id = d.event_id and ev.created_at = d.event_created_at
