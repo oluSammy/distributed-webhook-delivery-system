@@ -5,7 +5,9 @@ import {
   firstRow,
   generateSigningSecret,
   importMasterKey,
+  type LimiterHealth,
 } from "@wds/core";
+import type { LimiterApi } from "@wds/limiter/contract";
 import type { Sql } from "postgres";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
@@ -125,6 +127,50 @@ const deleteEndpoint = createRoute({
     },
   },
 });
+
+// healthy: sending normally. degraded: the endpoint is throttling us, or at least half of the
+// recent attempts failed. disabled: its breaker tripped. paused: it, its tenant or everything is.
+const Health = z.enum(["healthy", "degraded", "disabled", "paused"]);
+
+const EndpointHealth = z.object({
+  id: z.string(),
+  state: z.string(),
+  health: Health,
+  probe_at: z.string().nullable(), // disabled: when the next probe may go
+  // What the endpoint's limiter knows, since it last started; null when it can't be reached.
+  limiter: z
+    .object({
+      rate_limit_per_s: z.number(),
+      current_rate_per_s: z.number(), // lower than the limit while recovering from a throttle
+      concurrency_limit: z.number(),
+      slots_in_use: z.number(),
+      throttled_until: z.string().nullable(),
+      breaker: z.string(),
+      recent_attempts: z.number(), // the breaker's window: sent attempts in the last 10 minutes
+      recent_failures: z.number(),
+    })
+    .nullable(),
+});
+
+const getEndpointHealth = createRoute({
+  method: "get",
+  path: "/{id}/health",
+  request: { params: EndpointParams },
+  responses: {
+    200: {
+      description: "How the endpoint is doing: its state in Postgres, and what its limiter sees",
+      content: { "application/json": { schema: EndpointHealth } },
+    },
+  },
+});
+
+type HealthRow = {
+  state: string;
+  probe_at: Date | null;
+  rate_limit_per_s: number;
+  concurrency_limit: number;
+  paused: boolean;
+};
 
 type EndpointRow = {
   id: string;
@@ -274,6 +320,77 @@ endpoints.openapi(deleteEndpoint, async (c) => {
   }
   return c.json({ id, cancelled_deliveries: row.cancelled }, 200);
 });
+
+endpoints.openapi(getEndpointHealth, async (c) => {
+  const { id } = c.req.valid("param");
+  const [row] = await c.get("sql")<HealthRow[]>`
+        select e.state, e.probe_at, e.rate_limit_per_s, e.concurrency_limit, h.paused
+        from endpoints e
+        join endpoint_holds h on h.endpoint_id = e.id
+        where e.id = ${id} and e.tenant_id = ${c.get("tenantId")} and e.state <> 'deleted'
+      `;
+  if (!row) {
+    throw new ApiError(404, "not_found", "Endpoint not found");
+  }
+  const limiter = await limiterHealth(c.env, id, row);
+  return c.json(
+    {
+      id,
+      state: row.state,
+      health: healthOf(row, limiter),
+      probe_at: row.probe_at?.toISOString() ?? null,
+      limiter:
+        limiter === null
+          ? null
+          : {
+              rate_limit_per_s: row.rate_limit_per_s,
+              current_rate_per_s: Math.round(limiter.ratePerSecond * 10) / 10,
+              concurrency_limit: row.concurrency_limit,
+              slots_in_use: limiter.slotsInUse,
+              throttled_until:
+                limiter.pausedUntil === null ? null : new Date(limiter.pausedUntil).toISOString(),
+              breaker: limiter.breaker,
+              recent_attempts: limiter.recentAttempts,
+              recent_failures: limiter.recentFailures,
+            },
+    },
+    200,
+  );
+});
+
+// Asks the endpoint's limiter Durable Object (one per endpoint, named by its id) for its state.
+// If it can't be reached, the answer still has what Postgres knows.
+async function limiterHealth(env: Env, id: string, row: HealthRow): Promise<LimiterHealth | null> {
+  const limiters = env.LIMITER as DurableObjectNamespace<LimiterApi>;
+  try {
+    return await limiters
+      .getByName(id)
+      .health({ ratePerSecond: row.rate_limit_per_s, concurrency: row.concurrency_limit });
+  } catch (error) {
+    console.error(`endpoint ${id}: limiter unreachable`, error);
+    return null;
+  }
+}
+
+// Postgres decides paused and disabled. The limiter's breaker counts too: if recording a trip
+// failed, Postgres still says active while the limiter holds sends back.
+function healthOf(row: HealthRow, limiter: LimiterHealth | null): z.infer<typeof Health> {
+  if (row.paused) {
+    return "paused";
+  }
+  if (row.state === "disabled" || (limiter !== null && limiter.breaker !== "closed")) {
+    return "disabled";
+  }
+  if (
+    limiter !== null &&
+    (limiter.pausedUntil !== null ||
+      limiter.ratePerSecond < row.rate_limit_per_s ||
+      (limiter.recentFailures > 0 && limiter.recentFailures * 2 >= limiter.recentAttempts))
+  ) {
+    return "degraded";
+  }
+  return "healthy";
+}
 
 async function findEndpoint(sql: Sql, tenantId: string, id: string): Promise<EndpointRow> {
   const [row] = await selectEndpoints(sql, tenantId, id);

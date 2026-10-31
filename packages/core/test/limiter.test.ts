@@ -290,4 +290,48 @@ describe("LimiterState", () => {
       probeAt: 100 + 2 * FIRST_COOLDOWN_MS,
     });
   });
+
+  describe("health", () => {
+    it("starts at the endpoint's limits with nothing going on", () => {
+      expect(new LimiterState().health(roomy, 0)).toEqual({
+        ratePerSecond: 1000,
+        slotsInUse: 0,
+        pausedUntil: null,
+        breaker: "closed",
+        probeAt: null,
+        recentAttempts: 0,
+        recentFailures: 0,
+      });
+    });
+
+    it("counts slots in use until their lease ends", () => {
+      const limiter = new LimiterState();
+      limiter.acquire(roomy, LEASE_MS, 0);
+      limiter.acquire(roomy, LEASE_MS, 0);
+      expect(limiter.health(roomy, 1000).slotsInUse).toBe(2);
+      expect(limiter.health(roomy, LEASE_MS).slotsInUse).toBe(0);
+    });
+
+    it("shows a throttle's pause and the lowered rate", () => {
+      const limiter = new LimiterState();
+      const limits = { ratePerSecond: 50, concurrency: 100 };
+      limiter.release(slotOf(limiter.acquire(limits, LEASE_MS, 0)), throttled(1), 0);
+      expect(limiter.health(limits, 0)).toMatchObject({ ratePerSecond: 25, pausedUntil: 1000 });
+      expect(limiter.health(limits, 1000)).toMatchObject({ pausedUntil: null });
+    });
+
+    it("counts the breaker's window, and shows when an open breaker probes", () => {
+      const limiter = new LimiterState();
+      attempt(limiter, success, 0);
+      attempt(limiter, failure, 0);
+      expect(limiter.health(roomy, 0)).toMatchObject({ recentAttempts: 2, recentFailures: 1 });
+      expect(limiter.health(roomy, 10 * MINUTE)).toMatchObject({ recentAttempts: 0 });
+
+      trip(limiter, 10 * MINUTE);
+      expect(limiter.health(roomy, 10 * MINUTE)).toMatchObject({
+        breaker: "open",
+        probeAt: 10 * MINUTE + FIRST_COOLDOWN_MS,
+      });
+    });
+  });
 });

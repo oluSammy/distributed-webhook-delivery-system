@@ -13,6 +13,11 @@ name = "DISPATCHER"
 class_name = "Dispatcher"
 script_name = "wds-dispatcher"
 
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "EndpointLimiter"
+script_name = "wds-limiter"
+
 [secrets]
 required = ["MASTER_KEY_V1"]
 

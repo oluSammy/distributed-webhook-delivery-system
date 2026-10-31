@@ -16,6 +16,18 @@ export type Acquired = { go: true; slotId: string } | { go: false; retryAt: numb
 // next test delivery may go.
 export type BreakerChange = { kind: "tripped" | "reopened"; probeAt: number } | { kind: "closed" };
 
+// What one endpoint's limiter knows right now, for GET /api/endpoints/:id/health. It's soft state,
+// like everything the limiter keeps: a new instance (after an eviction or a deploy) starts empty.
+export type LimiterHealth = {
+  ratePerSecond: number; // the endpoint's limit, or less while it recovers from a throttle
+  slotsInUse: number; // sends holding a slot right now
+  pausedUntil: number | null; // when a throttle's pause ends, while one is running
+  breaker: "closed" | "open" | "half_open";
+  probeAt: number | null; // while open: when the next probe may go
+  recentAttempts: number; // the breaker's window: sent attempts in the last 10 minutes
+  recentFailures: number;
+};
+
 // What the Delivery Worker asks before each send, and tells after it. On Cloudflare it's one
 // Durable Object per endpoint; elsewhere it could be backed by Redis. result is what the endpoint
 // answered, or null when nothing was sent.
@@ -141,6 +153,20 @@ export class LimiterState {
       this.nextPauseMs = FIRST_PAUSE_MS;
     }
     return this.recordAttempt(result.outcome !== "success", now);
+  }
+
+  // A snapshot of the state, for reading only. limits are the endpoint's, from Postgres.
+  health(limits: EndpointLimits, now: number): LimiterHealth {
+    const recent = this.recent.filter((attempt) => attempt.at > now - WINDOW_MS);
+    return {
+      ratePerSecond: this.currentRate(limits, now),
+      slotsInUse: Array.from(this.slots.values()).filter((slot) => slot.leaseEndsAt > now).length,
+      pausedUntil: now < this.pausedUntil ? this.pausedUntil : null,
+      breaker: this.breaker.state,
+      probeAt: this.breaker.state === "open" ? this.breaker.probeAt : null,
+      recentAttempts: recent.length,
+      recentFailures: recent.filter((attempt) => attempt.failed).length,
+    };
   }
 
   private takeSlot(leaseMs: number, now: number): string {

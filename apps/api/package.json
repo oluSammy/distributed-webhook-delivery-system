@@ -10,6 +10,7 @@
     "@wds/core": "workspace:*",
     "@wds/db": "workspace:*",
     "@wds/dispatcher": "workspace:*",
+    "@wds/limiter": "workspace:*",
     "hono": "^4.13.12",
     "postgres": "^3.4.9",
     "zod": "^4.6.5"

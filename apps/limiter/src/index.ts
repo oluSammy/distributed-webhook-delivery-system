@@ -4,6 +4,7 @@ import {
   type BreakerChange,
   type Classification,
   type EndpointLimits,
+  type LimiterHealth,
   LimiterState,
 } from "@wds/core";
 import type { LimiterApi } from "./contract";
@@ -21,6 +22,10 @@ export class EndpointLimiter extends DurableObject<Env> implements LimiterApi {
 
   async release(slotId: string, result: Classification | null): Promise<BreakerChange | null> {
     return this.state.release(slotId, result, Date.now());
+  }
+
+  async health(limits: EndpointLimits): Promise<LimiterHealth> {
+    return this.state.health(limits, Date.now());
   }
 }
 

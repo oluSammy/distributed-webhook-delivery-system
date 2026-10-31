@@ -35,6 +35,9 @@ importers:
       '@wds/dispatcher':
         specifier: workspace:*
         version: link:../dispatcher
+      '@wds/limiter':
+        specifier: workspace:*
+        version: link:../limiter
       hono:
         specifier: ^4.13.12
         version: 4.13.12
