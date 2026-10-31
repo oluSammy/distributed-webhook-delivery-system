@@ -49,6 +49,11 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
           const sender = new Sender(masters, this.env.ALLOW_LOCAL_ENDPOINTS === "true");
           const limiter = durableLimiter(this.env);
           await forEachLimited(claims, MAX_IN_FLIGHT, async (claim) => {
+            if (claim.paused) {
+              console.log(`delivery ${claim.delivery_id}: paused, parking`);
+              unsent.set(claim, { dueAt: null, park: true });
+              return;
+            }
             // Too close to the end of the lease: another call could claim it while we send.
             if (Date.now() + claim.timeout_ms + RECORD_MARGIN_MS > leaseEndsAt) {
               return;

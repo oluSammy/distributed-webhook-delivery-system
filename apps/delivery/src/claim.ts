@@ -24,6 +24,7 @@ export type ClaimedDelivery = {
   rate_limit_per_s: number;
   concurrency_limit: number;
   endpoint_disabled: boolean; // its breaker tripped: the limiter allows only a probe
+  paused: boolean; // the endpoint, its tenant or the whole system is paused: nothing is sent
   timeout_ms: number;
   retry_policy: unknown; // the tenant's stored policy, checked by parseRetryPolicy
   secrets: StoredSecret[]; // every unexpired secret, oldest first
@@ -84,13 +85,14 @@ export async function claimDeliveries(sql: Sql, claimedBy: string): Promise<Clai
              ev.payload::text as payload,
              d.attempt_count, d.throttled_count, d.attempt_count + d.throttled_count + 1 as attempt_number,
              en.url, en.rate_limit_per_s, en.concurrency_limit,
-             en.state = 'disabled' as endpoint_disabled,
+             h.disabled as endpoint_disabled, h.paused,
              t.delivery_timeout_ms as timeout_ms, t.retry_policy, s.secrets
     from claimed c
     join deliveries d on d.id = c.delivery_id and d.created_at = c.delivery_created_at
     join events ev on ev.id = d.event_id and ev.created_at = d.event_created_at
     join endpoints en on en.id = c.endpoint_id
     join tenants t on t.id = en.tenant_id
+    join endpoint_holds h on h.endpoint_id = c.endpoint_id
     cross join lateral (
       select coalesce(jsonb_agg(jsonb_build_object(
                'secret_ciphertext', encode(es.secret_ciphertext, 'base64'),

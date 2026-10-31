@@ -77,8 +77,9 @@ export async function recordOutcome(
 }
 
 // When a claim given back unsent is due again: at dueAt, or now when it's null. park asks for it
-// to be parked instead (the limiter's breaker is open), which happens only if Postgres agrees its
-// endpoint is disabled; if recording the trip failed, the row comes back at dueAt as usual.
+// to be parked instead (it's paused, or the limiter's breaker is open), which happens only if
+// Postgres agrees it's still held: if it was resumed meanwhile, or recording the trip failed, the
+// row comes back at dueAt as usual.
 export type GiveBack = { dueAt: Date | null; park: boolean };
 
 // Gives back claims that weren't sent, instead of leaving them until the lease runs out. No
@@ -96,14 +97,14 @@ export async function releaseClaims(
   await sql`
         update delivery_queue q
         set next_attempt_at = case
-              when r.park and en.state = 'disabled' then 'infinity'
+              when r.park and (h.disabled or h.paused) then 'infinity'
               else coalesce(r.due_at, now())
             end,
             claim_token = null, claimed_by = null
         from jsonb_to_recordset(${sql.json(rows)})
             as r(delivery_id uuid, claim_token uuid, due_at timestamptz, park boolean),
-          endpoints en
+          endpoint_holds h
         where q.delivery_id = r.delivery_id and q.claim_token = r.claim_token
-          and en.id = q.endpoint_id
+          and h.endpoint_id = q.endpoint_id
       `;
 }
