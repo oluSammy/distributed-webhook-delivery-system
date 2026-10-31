@@ -23,6 +23,7 @@ export type ClaimedDelivery = {
   url: string;
   rate_limit_per_s: number;
   concurrency_limit: number;
+  endpoint_disabled: boolean; // its breaker tripped: the limiter allows only a probe
   timeout_ms: number;
   retry_policy: unknown; // the tenant's stored policy, checked by parseRetryPolicy
   secrets: StoredSecret[]; // every unexpired secret, oldest first
@@ -83,6 +84,7 @@ export async function claimDeliveries(sql: Sql, claimedBy: string): Promise<Clai
              ev.payload::text as payload,
              d.attempt_count, d.throttled_count, d.attempt_count + d.throttled_count + 1 as attempt_number,
              en.url, en.rate_limit_per_s, en.concurrency_limit,
+             en.state = 'disabled' as endpoint_disabled,
              t.delivery_timeout_ms as timeout_ms, t.retry_policy, s.secrets
     from claimed c
     join deliveries d on d.id = c.delivery_id and d.created_at = c.delivery_created_at

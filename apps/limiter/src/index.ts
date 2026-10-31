@@ -1,5 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import { type Acquired, type Classification, type EndpointLimits, LimiterState } from "@wds/core";
+import {
+  type Acquired,
+  type BreakerChange,
+  type Classification,
+  type EndpointLimits,
+  LimiterState,
+} from "@wds/core";
 import type { LimiterApi } from "./contract";
 
 // One instance per endpoint, named by its id. Cloudflare runs a single instance per name and hands
@@ -13,8 +19,8 @@ export class EndpointLimiter extends DurableObject<Env> implements LimiterApi {
     return this.state.acquire(limits, leaseMs, Date.now());
   }
 
-  async release(slotId: string, result: Classification | null): Promise<void> {
-    this.state.release(slotId, result, Date.now());
+  async release(slotId: string, result: Classification | null): Promise<BreakerChange | null> {
+    return this.state.release(slotId, result, Date.now());
   }
 }
 

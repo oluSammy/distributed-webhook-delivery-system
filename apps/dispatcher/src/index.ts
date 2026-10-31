@@ -101,12 +101,13 @@ export class Dispatcher extends DurableObject<Env> implements DispatcherApi {
   }
 
   // The earliest next_attempt_at in the queue: claimed rows count at the end of their lease,
-  // which is when they come back if their call crashed.
+  // which is when they come back if their call crashed. Parked rows ('infinity') are never due.
   private async nextDueAt(): Promise<number | null | "failed"> {
     const sql = createDb(this.env.HYPERDRIVE.connectionString);
     try {
       const [row] = await sql<{ next_due_at: Date | null }[]>`
         select min(next_attempt_at) as next_due_at from delivery_queue
+        where next_attempt_at < 'infinity'
       `;
       return row?.next_due_at?.getTime() ?? null;
     } catch (error) {

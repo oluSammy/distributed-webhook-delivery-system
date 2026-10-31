@@ -76,22 +76,34 @@ export async function recordOutcome(
   return row?.applied ?? false;
 }
 
-// Gives back claims that weren't sent, due again at the time given (now when it's null) instead
-// of when the lease runs out. No attempt is recorded and no budget is used.
+// When a claim given back unsent is due again: at dueAt, or now when it's null. park asks for it
+// to be parked instead (the limiter's breaker is open), which happens only if Postgres agrees its
+// endpoint is disabled; if recording the trip failed, the row comes back at dueAt as usual.
+export type GiveBack = { dueAt: Date | null; park: boolean };
+
+// Gives back claims that weren't sent, instead of leaving them until the lease runs out. No
+// attempt is recorded and no budget is used.
 export async function releaseClaims(
   sql: Sql,
-  claims: ReadonlyMap<ClaimedDelivery, Date | null>,
+  claims: ReadonlyMap<ClaimedDelivery, GiveBack>,
 ): Promise<void> {
-  const rows = [...claims].map(([{ delivery_id, claim_token }, dueAt]) => ({
+  const rows = [...claims].map(([{ delivery_id, claim_token }, { dueAt, park }]) => ({
     delivery_id,
     claim_token,
     due_at: dueAt,
+    park,
   }));
   await sql`
-      update delivery_queue q
-      set next_attempt_at = coalesce(r.due_at, now()), claim_token = null, claimed_by = null
-      from jsonb_to_recordset(${sql.json(rows)})
-        as r(delivery_id uuid, claim_token uuid, due_at timestamptz)
-      where q.delivery_id = r.delivery_id and q.claim_token = r.claim_token
-    `;
+        update delivery_queue q
+        set next_attempt_at = case
+              when r.park and en.state = 'disabled' then 'infinity'
+              else coalesce(r.due_at, now())
+            end,
+            claim_token = null, claimed_by = null
+        from jsonb_to_recordset(${sql.json(rows)})
+            as r(delivery_id uuid, claim_token uuid, due_at timestamptz, park boolean),
+          endpoints en
+        where q.delivery_id = r.delivery_id and q.claim_token = r.claim_token
+          and en.id = q.endpoint_id
+      `;
 }

@@ -21,7 +21,11 @@ export type BreakerChange = { kind: "tripped" | "reopened"; probeAt: number } | 
 // answered, or null when nothing was sent.
 export interface EndpointLimiter {
   acquire(endpointId: string, limits: EndpointLimits, leaseMs: number): Promise<Acquired>;
-  release(endpointId: string, slotId: string, result: Classification | null): Promise<void>;
+  release(
+    endpointId: string,
+    slotId: string,
+    result: Classification | null,
+  ): Promise<BreakerChange | null>;
 }
 
 // When every slot is taken, how long a delivery waits (less if a lease ends sooner). A slot usually

@@ -125,11 +125,13 @@ deliveries.openapi(getDelivery, async (c) => {
 });
 
 // A pending delivery's queue row says when it's next due, and whether a call holds it right now
-// (then next_attempt_at is when that claim's lease runs out).
+// (then next_attempt_at is when that claim's lease runs out). A parked row ('infinity': its endpoint
+// is disabled) has no time it's due, so it shows as null.
 function selectDeliveries(sql: Sql, tenantId: string, condition: Fragment) {
   return sql<DeliveryRow[]>`
     select d.id, d.event_id, d.endpoint_id, d.state, d.attempt_count, d.throttled_count,
-      d.failure_reason, d.redelivered_from, d.resolution, d.resolved_at, q.next_attempt_at,
+      d.failure_reason, d.redelivered_from, d.resolution, d.resolved_at,
+      nullif(q.next_attempt_at, 'infinity') as next_attempt_at,
       q.claim_token is not null as in_flight, d.created_at, d.finished_at
     from deliveries d
     left join delivery_queue q on q.delivery_id = d.id

@@ -12,10 +12,11 @@ import {
 import { createDb } from "@wds/db";
 import type { LimiterApi } from "@wds/limiter/contract";
 import type { Sql } from "postgres";
+import { recordBreakerChange } from "./breaker";
 import { type ClaimedDelivery, claimDeliveries, LEASE_SECONDS } from "./claim";
 import type { BatchResult, DeliveryApi } from "./contract";
 import { forEachLimited } from "./limit";
-import { recordOutcome, releaseClaims } from "./record";
+import { type GiveBack, recordOutcome, releaseClaims } from "./record";
 import { Sender } from "./send";
 
 // Workers allow 6 open connections per call; more would queue, with their timeouts already running.
@@ -37,9 +38,11 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
       const leaseEndsAt = Date.now() + LEASE_SECONDS * 1000;
       console.log(`delivery ${callId}: claimed ${claims.length}`);
 
-      // Claims to give back unsent, with when each is due again (null: now). Every claim starts
-      // here and leaves when it's sent; one the limiter holds back gets the limiter's time.
-      const unsent = new Map<ClaimedDelivery, Date | null>(claims.map((claim) => [claim, null]));
+      // Claims to give back unsent, with when each is due again. Every claim starts here, due now,
+      // and leaves when it's sent; one the limiter holds back gets the limiter's answer.
+      const unsent = new Map<ClaimedDelivery, GiveBack>(
+        claims.map((claim) => [claim, { dueAt: null, park: false }]),
+      );
       try {
         if (claims.length > 0) {
           const masters = new Map([[1, await importMasterKey(this.env.MASTER_KEY_V1, 1)]]);
@@ -52,7 +55,7 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
             }
             const slot = await acquireSlot(limiter, claim);
             if (!slot.go) {
-              unsent.set(claim, new Date(slot.retryAt));
+              unsent.set(claim, { dueAt: new Date(slot.retryAt), park: slot.park === true });
               return;
             }
             unsent.delete(claim);
@@ -63,12 +66,7 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
               // The claim stays leased and comes back when the lease runs out.
               console.error(`delivery ${claim.delivery_id}: failed to deliver`, error);
             } finally {
-              // If this fails, the slot frees itself when its lease ends.
-              await limiter
-                .release(claim.endpoint_id, slot.slotId, result)
-                .catch((error) =>
-                  console.error(`delivery ${claim.delivery_id}: release failed`, error),
-                );
+              await releaseSlot(sql, limiter, claim, slot.slotId, result);
             }
           });
         }
@@ -106,7 +104,11 @@ function durableLimiter(env: Env): EndpointLimiter {
 // Asks the endpoint's limiter whether this delivery can be sent now. The slot is leased for the
 // send's timeout plus the time kept for recording, so a slot this call never releases frees itself.
 async function acquireSlot(limiter: EndpointLimiter, claim: ClaimedDelivery): Promise<Acquired> {
-  const limits = { ratePerSecond: claim.rate_limit_per_s, concurrency: claim.concurrency_limit };
+  const limits = {
+    ratePerSecond: claim.rate_limit_per_s,
+    concurrency: claim.concurrency_limit,
+    disabled: claim.endpoint_disabled,
+  };
   try {
     const slot = await limiter.acquire(
       claim.endpoint_id,
@@ -122,6 +124,29 @@ async function acquireSlot(limiter: EndpointLimiter, claim: ClaimedDelivery): Pr
   } catch (error) {
     console.error(`delivery ${claim.delivery_id}: limiter unreachable, waiting`, error);
     return { go: false, retryAt: Date.now() + LIMITER_DOWN_WAIT_MS };
+  }
+}
+
+// Frees the slot, and records what that changed about the endpoint's breaker. Failures are only
+// logged: an unreleased slot frees itself when its lease ends, and if a trip isn't recorded the
+// endpoint stays active in Postgres, so its deliveries wait for the probe time instead of parking.
+async function releaseSlot(
+  sql: Sql,
+  limiter: EndpointLimiter,
+  claim: ClaimedDelivery,
+  slotId: string,
+  result: Classification | null,
+): Promise<void> {
+  try {
+    const change = await limiter.release(claim.endpoint_id, slotId, result);
+    if (change !== null) {
+      const moved = await recordBreakerChange(sql, claim.endpoint_id, change);
+      console.log(
+        `endpoint ${claim.endpoint_id}: breaker ${change.kind}, ${moved} deliveries moved`,
+      );
+    }
+  } catch (error) {
+    console.error(`delivery ${claim.delivery_id}: release failed`, error);
   }
 }
 
