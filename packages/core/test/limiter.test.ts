@@ -3,8 +3,10 @@ import type { Classification } from "../src/classify.ts";
 import {
   type Acquired,
   type EndpointLimits,
+  FIRST_COOLDOWN_MS,
   FIRST_PAUSE_MS,
   LimiterState,
+  MAX_COOLDOWN_MS,
   MAX_PAUSE_MS,
   SLOT_WAIT_MS,
 } from "../src/limiter.ts";
@@ -35,6 +37,23 @@ function burst(limiter: LimiterState, limits: EndpointLimits, now: number): numb
     limiter.release(acquired.slotId, success, now);
     sent++;
   }
+}
+
+// Plenty of rate and slots, so only the breaker holds sends back.
+const roomy = { ratePerSecond: 1000, concurrency: 1000 };
+
+// Sends one delivery at `now` and releases it with `result`; returns what the breaker did.
+function attempt(limiter: LimiterState, result: Classification, now: number) {
+  return limiter.release(slotOf(limiter.acquire(roomy, LEASE_MS, now)), result, now);
+}
+
+// Trips the breaker at `now` with 20 failures; returns the change the last one caused.
+function trip(limiter: LimiterState, now = 0) {
+  let change = null;
+  for (let i = 0; i < 20; i++) {
+    change = attempt(limiter, failure, now);
+  }
+  return change;
 }
 
 // The slot from an acquire that should have said go.
@@ -161,5 +180,114 @@ describe("LimiterState", () => {
     const limits = { ratePerSecond: 10, concurrency: 20 };
     limiter.release(slotOf(limiter.acquire(limits, LEASE_MS, 0)), failure, 0);
     expect(burst(limiter, limits, 1000)).toBe(10);
+  });
+
+  it("trips once more than 90% of at least 20 attempts have failed", () => {
+    const limiter = new LimiterState();
+    for (let i = 0; i < 19; i++) {
+      expect(attempt(limiter, failure, 0)).toBeNull();
+    }
+    expect(attempt(limiter, failure, 0)).toEqual({ kind: "tripped", probeAt: FIRST_COOLDOWN_MS });
+    expect(limiter.acquire(roomy, LEASE_MS, 0)).toEqual({
+      go: false,
+      retryAt: FIRST_COOLDOWN_MS,
+      park: true,
+    });
+  });
+
+  it("doesn't trip at 90% failures or fewer", () => {
+    const limiter = new LimiterState();
+    attempt(limiter, success, 0);
+    attempt(limiter, success, 0);
+    for (let i = 0; i < 18; i++) {
+      expect(attempt(limiter, failure, 0)).toBeNull(); // 18 of 20 is exactly 90%
+    }
+    expect(limiter.acquire(roomy, LEASE_MS, 0).go).toBe(true);
+  });
+
+  it("only looks at the last 50 attempts from the last 10 minutes", () => {
+    const limiter = new LimiterState();
+    for (let i = 0; i < 19; i++) {
+      attempt(limiter, failure, 0);
+    }
+    // 10 minutes later the 19 have left the window, so one more failure is 1 of 1
+    expect(attempt(limiter, failure, 10 * MINUTE)).toBeNull();
+
+    const busy = new LimiterState();
+    for (let i = 0; i < 6; i++) {
+      attempt(busy, success, 0);
+    }
+    for (let i = 0; i < 44; i++) {
+      expect(attempt(busy, failure, 0)).toBeNull(); // 44 of 50: 88%
+    }
+    // each new failure pushes out the oldest attempt; once only 4 successes are left, 46 of 50 is 92%
+    expect(attempt(busy, failure, 0)).toBeNull();
+    expect(attempt(busy, failure, 0)).toEqual({ kind: "tripped", probeAt: FIRST_COOLDOWN_MS });
+  });
+
+  it("ignores throttles and unsent deliveries", () => {
+    const limiter = new LimiterState();
+    for (let i = 0; i < 19; i++) {
+      attempt(limiter, failure, 0);
+    }
+    expect(attempt(limiter, throttled(), 0)).toBeNull();
+    expect(
+      limiter.release(slotOf(limiter.acquire(roomy, LEASE_MS, 10_000)), null, 10_000),
+    ).toBeNull();
+    expect(attempt(limiter, failure, 10_000)).toEqual({
+      kind: "tripped",
+      probeAt: 10_000 + FIRST_COOLDOWN_MS,
+    });
+  });
+
+  it("after the cool-down lets one probe through, and closes when it succeeds", () => {
+    const limiter = new LimiterState();
+    trip(limiter);
+    expect(limiter.acquire(roomy, LEASE_MS, FIRST_COOLDOWN_MS - 1).go).toBe(false);
+    const probe = slotOf(limiter.acquire(roomy, LEASE_MS, FIRST_COOLDOWN_MS));
+    expect(limiter.acquire(roomy, LEASE_MS, FIRST_COOLDOWN_MS)).toEqual({
+      go: false,
+      retryAt: FIRST_COOLDOWN_MS + LEASE_MS, // until the probe's lease ends
+      park: true,
+    });
+    expect(limiter.release(probe, success, FIRST_COOLDOWN_MS + 200)).toEqual({ kind: "closed" });
+    expect(limiter.acquire(roomy, LEASE_MS, FIRST_COOLDOWN_MS + 200).go).toBe(true);
+  });
+
+  it("doubles the cool-down after each failed probe, up to 30 minutes", () => {
+    const limiter = new LimiterState();
+    trip(limiter);
+    let now = FIRST_COOLDOWN_MS;
+    const cooldowns = [];
+    for (let i = 0; i < 7; i++) {
+      const change = attempt(limiter, failure, now);
+      if (change?.kind !== "reopened") {
+        throw new Error(`expected reopened, got ${JSON.stringify(change)}`);
+      }
+      cooldowns.push((change.probeAt - now) / MINUTE);
+      now = change.probeAt;
+    }
+    expect(cooldowns).toEqual([2, 4, 8, 16, 30, 30, 30]);
+    expect(MAX_COOLDOWN_MS).toBe(30 * MINUTE);
+  });
+
+  it("lets another probe through when one is lost", () => {
+    const limiter = new LimiterState();
+    trip(limiter);
+    slotOf(limiter.acquire(roomy, 5000, FIRST_COOLDOWN_MS)); // never released: its Worker stopped
+    expect(limiter.acquire(roomy, LEASE_MS, FIRST_COOLDOWN_MS + 4999).go).toBe(false);
+    const second = slotOf(limiter.acquire(roomy, LEASE_MS, FIRST_COOLDOWN_MS + 5000));
+    expect(limiter.release(second, success, FIRST_COOLDOWN_MS + 5100)).toEqual({ kind: "closed" });
+  });
+
+  it("probes straight away for an endpoint already disabled", () => {
+    const limiter = new LimiterState(); // a new instance: the old one was evicted while tripped
+    const disabled = { ...roomy, disabled: true };
+    const probe = slotOf(limiter.acquire(disabled, LEASE_MS, 0));
+    expect(limiter.acquire(disabled, LEASE_MS, 0).go).toBe(false);
+    expect(limiter.release(probe, failure, 100)).toEqual({
+      kind: "reopened",
+      probeAt: 100 + 2 * FIRST_COOLDOWN_MS,
+    });
   });
 });

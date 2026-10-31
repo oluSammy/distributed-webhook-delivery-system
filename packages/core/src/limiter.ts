@@ -4,10 +4,17 @@ import type { Classification } from "./classify.ts";
 export type EndpointLimits = {
   ratePerSecond: number; // rate_limit_per_s
   concurrency: number; // concurrency_limit
+  disabled?: boolean; // the endpoint's breaker tripped earlier (state = 'disabled')
 };
 
 // Send now, holding a slot until it's released; or don't send before retryAt (ms since the epoch).
-export type Acquired = { go: true; slotId: string } | { go: false; retryAt: number };
+// park is set while the breaker is open: the delivery can wait without a time, until a probe
+// succeeds, rather than coming back at retryAt to be told to wait again.
+export type Acquired = { go: true; slotId: string } | { go: false; retryAt: number; park?: true };
+
+// What a release changed about the breaker, for the Delivery Worker to record. probeAt is when the
+// next test delivery may go.
+export type BreakerChange = { kind: "tripped" | "reopened"; probeAt: number } | { kind: "closed" };
 
 // What the Delivery Worker asks before each send, and tells after it. On Cloudflare it's one
 // Durable Object per endpoint; elsewhere it could be backed by Redis. result is what the endpoint
@@ -34,7 +41,26 @@ export const MAX_PAUSE_MS = 5 * 60_000;
 const MIN_RATE_PER_SECOND = 1;
 const RECOVERY_PER_MINUTE = 5;
 
+// The breaker looks at the last 50 sent attempts from the last 10 minutes (throttles left out), and
+// trips when more than 90% of them failed, once there are at least 20.
+const WINDOW_ATTEMPTS = 50;
+const WINDOW_MS = 10 * 60_000;
+const MIN_ATTEMPTS_TO_TRIP = 20;
+const TRIP_FAILURE_RATE = 0.9;
+
+// How long a tripped breaker waits before letting one test delivery through. Each failed probe
+// doubles it, up to the maximum, so an endpoint that's down for a day is probed ~50 times, not 1,440.
+export const FIRST_COOLDOWN_MS = 60_000;
+export const MAX_COOLDOWN_MS = 30 * 60_000;
+
 type Slot = { acquiredAt: number; leaseEndsAt: number };
+
+// closed: sending normally. open: nothing is sent until probeAt. half_open: one probe is in flight.
+type Breaker =
+  | { state: "closed" }
+  | { state: "open"; probeAt: number; cooldownMs: number }
+  | { state: "half_open"; probeSlotId: string; cooldownMs: number };
+type OpenBreaker = Exclude<Breaker, { state: "closed" }>;
 
 // The limits for one endpoint, kept in memory. The caller passes the time (ms since the epoch), so
 // tests can use a fake clock.
@@ -44,6 +70,9 @@ type Slot = { acquiredAt: number; leaseEndsAt: number };
 //   never releases it (the Worker was stopped mid-send) frees itself when its lease ends.
 // - Throttles (429, or 503 with Retry-After): the endpoint is asking for less. Every send waits
 //   until the pause ends, and the rate is halved, then climbs back slowly (AIMD, as TCP does).
+// - Circuit breaker: when nearly every recent attempt fails, nothing is sent until a cool-down
+//   ends, and then only one probe. Its success closes the breaker; its failure starts a longer
+//   cool-down.
 export class LimiterState {
   private tokens: number | null = null; // null until the first acquire, which starts it full
   private refilledAt = 0;
@@ -53,16 +82,26 @@ export class LimiterState {
   private lastThrottleAt = Number.NEGATIVE_INFINITY;
   private cut: { rate: number; at: number } | null = null; // the rate after the last cut, and when
   private rate: number | null = null; // the rate the last acquire used
+  private breaker: Breaker = { state: "closed" };
+  private readonly recent: { at: number; failed: boolean }[] = []; // the breaker's window, oldest first
 
   acquire(limits: EndpointLimits, leaseMs: number, now: number): Acquired {
-    if (now < this.pausedUntil) {
-      return { go: false, retryAt: this.pausedUntil };
-    }
     for (const [slotId, slot] of this.slots) {
       if (slot.leaseEndsAt <= now) {
         this.slots.delete(slotId);
       }
     }
+    if (limits.disabled && this.breaker.state === "closed") {
+      // A new instance (the old one was evicted) for an endpoint whose breaker tripped: probe now.
+      this.breaker = { state: "open", probeAt: now, cooldownMs: FIRST_COOLDOWN_MS };
+    }
+    if (this.breaker.state !== "closed") {
+      return this.acquireWhileOpen(this.breaker, leaseMs, now);
+    }
+    if (now < this.pausedUntil) {
+      return { go: false, retryAt: this.pausedUntil };
+    }
+
     // Slots first: a delivery that can't get one mustn't use up a token.
     if (this.slots.size >= limits.concurrency) {
       const firstLeaseEnd = Math.min(...Array.from(this.slots.values(), (s) => s.leaseEndsAt));
@@ -76,21 +115,104 @@ export class LimiterState {
       return { go: false, retryAt: now + Math.ceil((1 - tokens) * msPerToken) };
     }
     this.tokens = tokens - 1;
-    const slotId = crypto.randomUUID();
-    this.slots.set(slotId, { acquiredAt: now, leaseEndsAt: now + leaseMs });
-    return { go: true, slotId };
+    return { go: true, slotId: this.takeSlot(leaseMs, now) };
   }
 
   // Frees the slot (unknown ids are ignored: the lease may have ended already) and takes note of
-  // what the endpoint answered. result is null when nothing was sent.
-  release(slotId: string, result: Classification | null, now: number): void {
+  // what the endpoint answered (null: nothing was sent). Returns what changed about the breaker.
+  release(slotId: string, result: Classification | null, now: number): BreakerChange | null {
     const slot = this.slots.get(slotId);
     this.slots.delete(slotId);
-    if (result?.outcome === "success") {
-      this.nextPauseMs = FIRST_PAUSE_MS;
-    } else if (result?.outcome === "throttled") {
-      this.throttled(result.retryAfterSeconds, slot, now);
+    if (this.breaker.state === "half_open" && this.breaker.probeSlotId === slotId) {
+      return this.probed(result, now);
     }
+    if (result === null) {
+      return null;
+    }
+    if (result.outcome === "throttled") {
+      this.throttled(result.retryAfterSeconds, slot, now);
+      return null;
+    }
+    if (result.outcome === "success") {
+      this.nextPauseMs = FIRST_PAUSE_MS;
+    }
+    return this.recordAttempt(result.outcome !== "success", now);
+  }
+
+  private takeSlot(leaseMs: number, now: number): string {
+    const slotId = crypto.randomUUID();
+    this.slots.set(slotId, { acquiredAt: now, leaseEndsAt: now + leaseMs });
+    return slotId;
+  }
+
+  // Open: wait for the probe time, then send exactly one probe. Half-open: wait for the probe's
+  // result.
+  private acquireWhileOpen(breaker: OpenBreaker, leaseMs: number, now: number): Acquired {
+    if (breaker.state === "half_open") {
+      const probe = this.slots.get(breaker.probeSlotId);
+      if (probe !== undefined) {
+        return { go: false, retryAt: probe.leaseEndsAt, park: true };
+      }
+      // The probe's lease ended without an answer (its Worker stopped): send another.
+    } else if (now < breaker.probeAt) {
+      return { go: false, retryAt: breaker.probeAt, park: true };
+    }
+    const slotId = this.takeSlot(leaseMs, now);
+    this.breaker = { state: "half_open", probeSlotId: slotId, cooldownMs: breaker.cooldownMs };
+    return { go: true, slotId };
+  }
+
+  // Adds a sent attempt to the window, and trips the breaker if nearly all of it failed.
+  private recordAttempt(failed: boolean, now: number): BreakerChange | null {
+    if (this.breaker.state !== "closed") {
+      return null; // sent before the breaker tripped; the probe decides what happens next
+    }
+
+    this.recent.push({ at: now, failed });
+    while (
+      this.recent.length > WINDOW_ATTEMPTS ||
+      (this.recent[0] !== undefined && this.recent[0].at <= now - WINDOW_MS)
+    ) {
+      this.recent.shift();
+    }
+    const failures = this.recent.filter((attempt) => attempt.failed).length;
+    if (
+      this.recent.length < MIN_ATTEMPTS_TO_TRIP ||
+      failures / this.recent.length <= TRIP_FAILURE_RATE
+    ) {
+      return null;
+    }
+    this.recent.length = 0;
+    this.breaker = {
+      state: "open",
+      probeAt: now + FIRST_COOLDOWN_MS,
+      cooldownMs: FIRST_COOLDOWN_MS,
+    };
+    return { kind: "tripped", probeAt: this.breaker.probeAt };
+  }
+
+  // The probe's answer. A success shows the endpoint is back, and so does a throttle: it's alive,
+  // just asking for less. A failure doubles the cool-down. Nothing sent (null) tested nothing, so
+  // another probe may go now.
+  private probed(result: Classification | null, now: number): BreakerChange | null {
+    if (this.breaker.state !== "half_open") {
+      return null;
+    }
+    const { cooldownMs } = this.breaker;
+    if (result === null) {
+      this.breaker = { state: "open", probeAt: now, cooldownMs };
+      return null;
+    }
+    if (result.outcome === "success" || result.outcome === "throttled") {
+      this.breaker = { state: "closed" };
+      if (result.outcome === "throttled") {
+        this.throttled(result.retryAfterSeconds, undefined, now);
+      }
+      return { kind: "closed" };
+    }
+    const longer = Math.min(cooldownMs * 2, MAX_COOLDOWN_MS);
+    this.breaker = { state: "open", probeAt: now + longer, cooldownMs: longer };
+    return { kind: "reopened", probeAt: this.breaker.probeAt };
   }
 
   // Pauses the endpoint and halves its rate. Sends already in flight when the last throttle came
