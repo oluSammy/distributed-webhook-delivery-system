@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { Fragment, Sql } from "postgres";
+import { decodeCursor, encodeCursor } from "../cursor";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
@@ -249,27 +250,6 @@ function deadFilters(sql: Sql, filters: z.infer<typeof DeadFilters>): Fragment {
       ${filters.since === undefined ? sql`` : sql`and d.created_at >= ${filters.since}`}
       ${filters.until === undefined ? sql`` : sql`and d.created_at < ${filters.until}`}
     `;
-}
-
-// The cursor is the last row's position and id, so the next page starts right after it even when
-// several deliveries were created in the same microsecond. Base64url keeps it opaque and URL-safe.
-function encodeCursor(row: DeadDeliveryRow): string {
-  return btoa(JSON.stringify([row.position, row.id]))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
-}
-
-function decodeCursor(cursor: string): { position: string; id: string } {
-  try {
-    const [position, id] = JSON.parse(atob(cursor.replaceAll("-", "+").replaceAll("_", "/")));
-    if (typeof position === "string" && z.uuid().safeParse(id).success) {
-      return { position, id };
-    }
-  } catch {
-    // not base64 or not JSON: rejected below
-  }
-  throw new ApiError(400, "invalid_cursor", "cursor is not one this API returned");
 }
 
 function toResponse(row: DeadDeliveryRow) {

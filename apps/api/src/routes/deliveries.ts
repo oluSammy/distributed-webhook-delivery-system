@@ -1,7 +1,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { Fragment, Sql } from "postgres";
+import { decodeCursor, encodeCursor } from "../cursor";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
+
+const MAX_PAGE = 100;
 
 const Delivery = z.object({
   id: z.string(),
@@ -36,14 +39,31 @@ const DeliveryWithAttempts = Delivery.extend({
   attempts: z.array(Attempt),
 });
 
+// Every search names an event or an endpoint (or both), so it always has an index to use:
+// idx_deliveries_event or idx_deliveries_endpoint. The rest narrows it down.
+const ListQuery = z.object({
+  event_id: z.uuid().optional(),
+  endpoint_id: z.uuid().optional(),
+  state: z.enum(["pending", "succeeded", "dead", "cancelled"]).optional(),
+  since: z.iso.datetime({ offset: true }).optional(), // created at or after
+  until: z.iso.datetime({ offset: true }).optional(), // created before
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE).default(50),
+  cursor: z.string().max(200).optional(), // next_cursor from the previous page
+});
+
 const listDeliveries = createRoute({
   method: "get",
   path: "/",
-  request: { query: z.object({ event_id: z.uuid() }) },
+  request: { query: ListQuery },
   responses: {
     200: {
-      description: "The event's deliveries, one per endpoint it was sent to",
-      content: { "application/json": { schema: z.object({ deliveries: z.array(Delivery) }) } },
+      description:
+        "Deliveries of an event or to an endpoint, newest first. Pass next_cursor as cursor for the next page; it's null on the last one.",
+      content: {
+        "application/json": {
+          schema: z.object({ deliveries: z.array(Delivery), next_cursor: z.string().nullable() }),
+        },
+      },
     },
   },
 });
@@ -75,6 +95,7 @@ type DeliveryRow = {
   in_flight: boolean;
   created_at: Date;
   finished_at: Date | null;
+  position: string; // created_at as text, which keeps the microseconds a Date would lose
 };
 
 type AttemptRow = {
@@ -92,16 +113,38 @@ type AttemptRow = {
 export const deliveries = createRouter();
 
 deliveries.openapi(listDeliveries, async (c) => {
-  const { event_id } = c.req.valid("query");
+  const query = c.req.valid("query");
+  if (query.event_id === undefined && query.endpoint_id === undefined) {
+    throw new ApiError(400, "invalid_request", "Give event_id or endpoint_id");
+  }
   const sql = c.get("sql");
-  const rows = await selectDeliveries(sql, c.get("tenantId"), sql`d.event_id = ${event_id}`);
-  return c.json({ deliveries: rows.map(toResponse) }, 200);
+  const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
+
+  // One more than the page, to tell whether another page follows.
+  const rows = await selectDeliveries(
+    sql,
+    c.get("tenantId"),
+    sql`
+      ${query.event_id === undefined ? sql`` : sql`and d.event_id = ${query.event_id}`}
+      ${query.endpoint_id === undefined ? sql`` : sql`and d.endpoint_id = ${query.endpoint_id}`}
+      ${query.state === undefined ? sql`` : sql`and d.state = ${query.state}`}
+      ${query.since === undefined ? sql`` : sql`and d.created_at >= ${query.since}`}
+      ${query.until === undefined ? sql`` : sql`and d.created_at < ${query.until}`}
+      ${after === null ? sql`` : sql`and (d.created_at, d.id) < (${after.position}::text::timestamptz, ${after.id})`}
+    `,
+    query.limit + 1,
+  );
+
+  const page = rows.slice(0, query.limit);
+  const last = page.at(-1);
+  const nextCursor = rows.length > query.limit && last ? encodeCursor(last) : null;
+  return c.json({ deliveries: page.map(toResponse), next_cursor: nextCursor }, 200);
 });
 
 deliveries.openapi(getDelivery, async (c) => {
   const { id } = c.req.valid("param");
   const sql = c.get("sql");
-  const [row] = await selectDeliveries(sql, c.get("tenantId"), sql`d.id = ${id}`);
+  const [row] = await selectDeliveries(sql, c.get("tenantId"), sql`and d.id = ${id}`, 1);
   if (!row) {
     throw new ApiError(404, "not_found", "Delivery not found");
   }
@@ -124,21 +167,24 @@ deliveries.openapi(getDelivery, async (c) => {
   return c.json({ ...toResponse(row), attempts: attempts.map(toAttemptResponse) }, 200);
 });
 
-// A pending delivery's queue row says when it's next due, and whether a call holds it right now
-// (then next_attempt_at is when that claim's lease runs out). A parked row ('infinity': its endpoint
-// is disabled) has no time it's due, so it shows as null.
-function selectDeliveries(sql: Sql, tenantId: string, condition: Fragment) {
+// The tenant's deliveries that match condition (which starts with "and"), newest first, at most
+// limit of them. A pending delivery's queue row says when it's next due, and whether a call holds
+// it right now (then next_attempt_at is when that claim's lease runs out). A parked row
+// ('infinity': its endpoint is disabled or paused) has no time it's due, so it shows as null.
+function selectDeliveries(sql: Sql, tenantId: string, condition: Fragment, limit: number) {
   return sql<DeliveryRow[]>`
-    select d.id, d.event_id, d.endpoint_id, d.state, d.attempt_count, d.throttled_count,
-      d.failure_reason, d.redelivered_from, d.resolution, d.resolved_at,
-      nullif(q.next_attempt_at, 'infinity') as next_attempt_at,
-      q.claim_token is not null as in_flight, d.created_at, d.finished_at
-    from deliveries d
-    left join delivery_queue q on q.delivery_id = d.id
-    where d.tenant_id = ${tenantId}
-    and ${condition}
-    order by d.created_at, d.id
-    `;
+      select d.id, d.event_id, d.endpoint_id, d.state, d.attempt_count, d.throttled_count,
+        d.failure_reason, d.redelivered_from, d.resolution, d.resolved_at,
+        nullif(q.next_attempt_at, 'infinity') as next_attempt_at,
+        q.claim_token is not null as in_flight, d.created_at, d.finished_at,
+        d.created_at::text as position
+      from deliveries d
+      left join delivery_queue q on q.delivery_id = d.id
+      where d.tenant_id = ${tenantId}
+      ${condition}
+      order by d.created_at desc, d.id desc
+      limit ${limit}
+      `;
 }
 
 function toResponse(row: DeliveryRow) {
