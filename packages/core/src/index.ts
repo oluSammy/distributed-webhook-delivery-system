@@ -4,6 +4,7 @@ export * from "./crypto.ts";
 export * from "./dns.ts";
 export * from "./encoding.ts";
 export * from "./hash.ts";
+export * from "./limiter.ts";
 export * from "./rows.ts";
 export * from "./schedule.ts";
 export * from "./signing.ts";
