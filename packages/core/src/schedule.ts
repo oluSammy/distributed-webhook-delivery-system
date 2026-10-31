@@ -2,7 +2,7 @@
 export type TickOutcome = {
   runAgainNow: boolean; // the create batch was full, or new events arrived during the tick
   claimed: number; // deliveries claimed by all delivery calls
-  nextDueAt: number | null; // earliest next_attempt_at in the queue (ms); null when the queue is empty
+  nextDueAt: number | null; // earliest next_attempt_at or probe time (ms); null when nothing is due
   failed: boolean; // a job or the next-due query failed
 };
 
