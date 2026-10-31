@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   type Acquired,
+  type Classification,
   classify,
   type EndpointLimiter,
   importMasterKey,
@@ -55,15 +56,16 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
               return;
             }
             unsent.delete(claim);
+            let result: Classification | null = null;
             try {
-              await deliver(sql, sender, claim);
+              result = await deliver(sql, sender, claim);
             } catch (error) {
               // The claim stays leased and comes back when the lease runs out.
               console.error(`delivery ${claim.delivery_id}: failed to deliver`, error);
             } finally {
               // If this fails, the slot frees itself when its lease ends.
               await limiter
-                .release(claim.endpoint_id, slot.slotId)
+                .release(claim.endpoint_id, slot.slotId, result)
                 .catch((error) =>
                   console.error(`delivery ${claim.delivery_id}: release failed`, error),
                 );
@@ -97,7 +99,7 @@ function durableLimiter(env: Env): EndpointLimiter {
   return {
     acquire: (endpointId, limits, leaseMs) =>
       limiters.getByName(endpointId).acquire(limits, leaseMs),
-    release: (endpointId, slotId) => limiters.getByName(endpointId).release(slotId),
+    release: (endpointId, slotId, result) => limiters.getByName(endpointId).release(slotId, result),
   };
 }
 
@@ -123,8 +125,13 @@ async function acquireSlot(limiter: EndpointLimiter, claim: ClaimedDelivery): Pr
   }
 }
 
-// Sends one claimed delivery and records what happened.
-async function deliver(sql: Sql, sender: Sender, claim: ClaimedDelivery): Promise<void> {
+// Sends one claimed delivery and records what happened. Returns what the endpoint's answer meant,
+// for the limiter, or null when nothing was sent.
+async function deliver(
+  sql: Sql,
+  sender: Sender,
+  claim: ClaimedDelivery,
+): Promise<Classification | null> {
   const result = await sender.send(claim);
   const label = `delivery ${claim.delivery_id} attempt ${claim.attempt_number} → ${claim.url}`;
 
@@ -132,7 +139,7 @@ async function deliver(sql: Sql, sender: Sender, claim: ClaimedDelivery): Promis
     const step: NextStep = { state: "dead", reason: "url_not_allowed" };
     const applied = await recordOutcome(sql, claim, step, null);
     console.log(`${label}: not sent, ${result.reason} → ${describe(step, applied)}`);
-    return;
+    return null;
   }
 
   const now = new Date();
@@ -166,6 +173,8 @@ async function deliver(sql: Sql, sender: Sender, claim: ClaimedDelivery): Promis
   console.log(
     `${label}: ${what} in ${result.latencyMs} ms, ${classification.outcome} → ${describe(step, applied)}`,
   );
+
+  return classification;
 }
 
 function describe(step: NextStep, applied: boolean): string {
