@@ -80,6 +80,22 @@ const getDelivery = createRoute({
   },
 });
 
+const cancelDelivery = createRoute({
+  method: "post",
+  path: "/{id}/cancel",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    200: {
+      description: "The delivery is cancelled: it won't be sent again",
+      content: {
+        "application/json": {
+          schema: z.object({ id: z.string(), state: z.string(), finished_at: z.string() }),
+        },
+      },
+    },
+  },
+});
+
 type DeliveryRow = {
   id: string;
   event_id: string;
@@ -165,6 +181,45 @@ deliveries.openapi(getDelivery, async (c) => {
       order by attempt_number, started_at
       `;
   return c.json({ ...toResponse(row), attempts: attempts.map(toAttemptResponse) }, 200);
+});
+
+// Takes the delivery out of the queue and marks it cancelled, in one statement. If it's being
+// sent right now, that send still finishes, but its outcome finds no queue row, so it's recorded
+// as stale and the delivery stays cancelled.
+deliveries.openapi(cancelDelivery, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+  const [row] = await sql<{ id: string; finished_at: Date }[]>`
+      with dequeued as (
+        delete from delivery_queue q
+        using deliveries d
+        where q.delivery_id = ${id}
+          and d.id = q.delivery_id and d.created_at = q.delivery_created_at
+          and d.tenant_id = ${tenantId} and d.state = 'pending'
+        returning q.delivery_id, q.delivery_created_at
+      )
+      update deliveries d
+      set state = 'cancelled', finished_at = now()
+      from dequeued
+      where d.id = dequeued.delivery_id and d.created_at = dequeued.delivery_created_at
+      returning d.id, d.finished_at
+    `;
+  if (!row) {
+    const [existing] = await selectDeliveries(sql, tenantId, sql`and d.id = ${id}`, 1);
+    if (!existing) {
+      throw new ApiError(404, "not_found", "Delivery not found");
+    }
+    throw new ApiError(
+      409,
+      "delivery_not_pending",
+      `Only a pending delivery can be cancelled; this one is ${existing.state}`,
+    );
+  }
+  return c.json(
+    { id: row.id, state: "cancelled", finished_at: row.finished_at.toISOString() },
+    200,
+  );
 });
 
 // The tenant's deliveries that match condition (which starts with "and"), newest first, at most
