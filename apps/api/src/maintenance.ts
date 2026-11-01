@@ -1,9 +1,27 @@
+import { parseRetention, type Retention } from "@wds/core";
 import { createDb } from "@wds/db";
 import type { Sql } from "postgres";
 import { wakeDispatcher } from "./dispatcher";
 
 // How many days of partitions to keep made ahead of today, for events, deliveries and attempts.
 const PARTITION_DAYS_AHEAD = 7;
+
+// Expired idempotency keys are deleted this many at a time, at most this many times per run.
+// Small batches keep each delete short, and let autovacuum keep up with the dead rows.
+const KEYS_PER_BATCH = 1000;
+const KEY_BATCHES_PER_RUN = 20;
+
+// For drop_partitions_before, run with $1 = the end of a partition about to be dropped.
+// A pending delivery still has its queue row, and needs its row in deliveries.
+const DELIVERY_STILL_NEEDED = `
+    select exists (select 1 from delivery_queue where delivery_created_at < $1)`;
+// A queued delivery reads its event's payload when it's sent.
+const EVENT_STILL_NEEDED = `
+    select exists (
+      select 1 from delivery_queue q
+      join deliveries d on d.id = q.delivery_id and d.created_at = q.delivery_created_at
+      where d.event_created_at < $1
+    )`;
 
 // The jobs the cron runs every 15 minutes. Each one runs on its own: if one fails, the rest still
 // run, and the next run tries it again. One line is logged with what each did.
@@ -30,6 +48,8 @@ export async function runMaintenance(env: Env): Promise<void> {
     await run("cancelled", () => cancelOnDeletedEndpoints(sql));
     await run("unparked", () => unparkReleased(sql));
     await run("tenants", () => repairTenantsWithWork(sql));
+    await run("dropped", () => dropExpiredPartitions(sql, parseRetention(env)));
+    await run("keys", () => deleteExpiredKeys(sql));
     // Last, so whatever the repairs made due is sent straight away. A wake-up or alarm can also be
     // lost, for example while the dispatcher is being redeployed. Waking it here means waiting
     // events and due deliveries never sit longer than one run. It also runs the create job, for
@@ -97,4 +117,49 @@ async function repairTenantsWithWork(sql: Sql): Promise<{ removed: number; added
       on conflict do nothing
     `;
   return { removed: removed.count, added: added.count };
+}
+
+// Drops the daily partitions of events and deliveries older than their retention, except any a
+// pending delivery still needs: a delivery parked on a long-paused endpoint keeps its own row and
+// its event's payload. Returns how many partitions of each were dropped.
+async function dropExpiredPartitions(
+  sql: Sql,
+  retention: Retention,
+): Promise<{ events: number; deliveries: number }> {
+  const [events] = await sql<{ dropped: number }[]>`
+      select drop_partitions_before(
+        'events',
+        now() - make_interval(days => ${retention.eventDays}),
+        ${EVENT_STILL_NEEDED}
+      ) as dropped
+    `;
+  const [deliveries] = await sql<{ dropped: number }[]>`
+      select drop_partitions_before(
+        'deliveries',
+        now() - make_interval(days => ${retention.deliveryDays}),
+        ${DELIVERY_STILL_NEEDED}
+      ) as dropped
+    `;
+  return { events: events?.dropped ?? 0, deliveries: deliveries?.dropped ?? 0 };
+}
+
+// Deletes idempotency keys past their 24 hours, a batch at a time. Whatever is left over waits
+// for the next run. Returns how many.
+async function deleteExpiredKeys(sql: Sql): Promise<number> {
+  let deleted = 0;
+  for (let batch = 0; batch < KEY_BATCHES_PER_RUN; batch++) {
+    const keys = await sql`
+        delete from idempotency_keys
+        where (tenant_id, key) in (
+          select tenant_id, key from idempotency_keys
+          where expires_at < now()
+          limit ${KEYS_PER_BATCH}
+        )
+      `;
+    deleted += keys.count;
+    if (keys.count < KEYS_PER_BATCH) {
+      break;
+    }
+  }
+  return deleted;
 }

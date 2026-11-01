@@ -28,3 +28,9 @@ required = ["MASTER_KEY_V1"]
 
 [vars]
 ALLOW_LOCAL_ENDPOINTS = "false"
+# How many days rows are kept (parseRetention in core checks the rules). The spec's defaults are
+# 7 / 30 / 30; events get 3 more days here, so a delivery redelivered on its last day can still
+# read its event. The cloud deploy will use less: Neon Free has 0.5 GB.
+ATTEMPT_RETENTION_DAYS = "7"
+DELIVERY_RETENTION_DAYS = "30"
+EVENT_RETENTION_DAYS = "33"
