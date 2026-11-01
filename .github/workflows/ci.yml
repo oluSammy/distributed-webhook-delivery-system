@@ -5,39 +5,39 @@ on: push
 permissions:
   contents: read
 
-  jobs:
-    check:
-      runs-on: ubuntu-latest
-      timeout-minutes: 15
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
-      # The integration tests' database: the same Postgres as docker-compose.yml.
-      services:
-        postgres:
-          image: postgres:18-alpine
-          env:
-            POSTGRES_USER: webhooks
-            POSTGRES_PASSWORD: webhooks
-            POSTGRES_DB: webhooks
-          ports:
-            - 5432:5432
-          options: >-
-            --health-cmd "pg_isready -U webhooks -d webhooks"
-            --health-interval 2s
-            --health-timeout 3s
-            --health-retries 15
+    # The integration tests' database: the same Postgres as docker-compose.yml.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: webhooks
+          POSTGRES_PASSWORD: webhooks
+          POSTGRES_DB: webhooks
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U webhooks -d webhooks"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
 
-      env:
-        TEST_DATABASE_URL: postgres://webhooks:webhooks@localhost:5432/webhooks_test
+    env:
+      TEST_DATABASE_URL: postgres://webhooks:webhooks@localhost:5432/webhooks_test
 
-      steps:
-        - uses: actions/checkout@v7.0.1
-        # Installs the pnpm version named by packageManager in package.json.
-        - uses: pnpm/action-setup@v6.1.0
-        - uses: actions/setup-node@v7.1.0
-          with:
-            node-version: 24
-            cache: pnpm
-        - run: pnpm install --frozen-lockfile
-        - run: pnpm typecheck
-        - run: pnpm lint
-        - run: pnpm test
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # Installs the pnpm version named by packageManager in package.json.
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
