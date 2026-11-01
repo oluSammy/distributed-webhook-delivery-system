@@ -1,4 +1,5 @@
 import { createDb } from "@wds/db";
+import type { Sql } from "postgres";
 import { wakeDispatcher } from "./dispatcher";
 
 // How many days of partitions to keep made ahead of today, for events, deliveries and attempts.
@@ -24,9 +25,15 @@ export async function runMaintenance(env: Env): Promise<void> {
       await sql`select ensure_partitions(${PARTITION_DAYS_AHEAD})`;
       return "ok";
     });
-    // A wake-up or alarm can be lost, for example while the dispatcher is being redeployed. Waking
-    // it here means waiting events and due deliveries never sit longer than one run. It also runs
-    // the create job, for events stored when no wake-up reached it.
+
+    // Before un-parking, so a deleted endpoint's rows are cancelled rather than sent.
+    await run("cancelled", () => cancelOnDeletedEndpoints(sql));
+    await run("unparked", () => unparkReleased(sql));
+    await run("tenants", () => repairTenantsWithWork(sql));
+    // Last, so whatever the repairs made due is sent straight away. A wake-up or alarm can also be
+    // lost, for example while the dispatcher is being redeployed. Waking it here means waiting
+    // events and due deliveries never sit longer than one run. It also runs the create job, for
+    // events stored when no wake-up reached it.
     await run("dispatcher", async () => {
       await wakeDispatcher(env);
       return "woken";
@@ -35,4 +42,59 @@ export async function runMaintenance(env: Env): Promise<void> {
     await sql.end();
   }
   console.log("maintenance", results);
+}
+
+// A delivery can be created for an endpoint while it's being deleted: the creator read it as not
+// deleted yet. Its queue row would then be sent, or parked forever. Cancels those, as the delete
+// would have. Returns how many.
+async function cancelOnDeletedEndpoints(sql: Sql): Promise<number> {
+  const cancelled = await sql`
+      with dequeued as (
+        delete from delivery_queue q
+        using endpoints e
+        where e.id = q.endpoint_id and e.state = 'deleted'
+        returning q.delivery_id, q.delivery_created_at
+      )
+      update deliveries d
+      set state = 'cancelled', finished_at = now()
+      from dequeued
+      where d.id = dequeued.delivery_id and d.created_at = dequeued.delivery_created_at
+        and d.state = 'pending'
+    `;
+  return cancelled.count;
+}
+
+// Makes parked rows due again when nothing holds their endpoint any more. Normally a breaker close
+// or a resume un-parks them, but a row given back at the same moment can be parked just after,
+// with nothing left to wake it. Returns how many.
+async function unparkReleased(sql: Sql): Promise<number> {
+  const unparked = await sql`
+      update delivery_queue q
+      set next_attempt_at = now()
+      from endpoint_holds h
+      join endpoints e on e.id = h.endpoint_id
+      where q.endpoint_id = h.endpoint_id
+        and q.next_attempt_at = 'infinity'
+        and not h.disabled and not h.paused
+        and e.state <> 'deleted'
+    `;
+  return unparked.count;
+}
+
+// The claim only looks at tenants in tenants_with_work. Tenants with no queue rows left (parked
+// ones count) are removed, so claims don't spend turns on them. Then any tenant with queue rows
+// that's missing is put back: removing races with creating deliveries, whose "on conflict do
+// nothing" can see the row just before it's removed. Returns how many were removed and added.
+async function repairTenantsWithWork(sql: Sql): Promise<{ removed: number; added: number }> {
+  const removed = await sql`
+      delete from tenants_with_work w
+      where not exists (select 1 from delivery_queue q where q.tenant_id = w.tenant_id)
+    `;
+  const added = await sql`
+      insert into tenants_with_work (tenant_id)
+      select t.id from tenants t
+      where exists (select 1 from delivery_queue q where q.tenant_id = t.id)
+      on conflict do nothing
+    `;
+  return { removed: removed.count, added: added.count };
 }
