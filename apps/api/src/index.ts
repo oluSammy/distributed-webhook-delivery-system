@@ -1,5 +1,6 @@
 import { createDb } from "@wds/db";
 import { handleError } from "./errors";
+import { runMaintenance } from "./maintenance";
 import { requireOperator, requireTenant } from "./middleware/auth";
 import { withDb } from "./middleware/db";
 import { createRouter } from "./router";
@@ -46,4 +47,10 @@ app.route("/admin", admin);
 
 app.onError(handleError);
 
-export default app;
+// fetch serves the API; scheduled runs the maintenance cron ([triggers] in wrangler.toml).
+export default {
+  fetch: app.fetch,
+  async scheduled(_controller, env) {
+    await runMaintenance(env);
+  },
+} satisfies ExportedHandler<Env>;

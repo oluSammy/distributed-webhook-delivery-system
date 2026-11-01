@@ -18,6 +18,11 @@ name = "LIMITER"
 class_name = "EndpointLimiter"
 script_name = "wds-limiter"
 
+# The maintenance cron (src/maintenance.ts). It's on the API Worker because local dev can only
+# trigger the first Worker's cron: curl "localhost:8787/__scheduled?cron=*/15+*+*+*+*".
+[triggers]
+crons = ["*/15 * * * *"]
+
 [secrets]
 required = ["MASTER_KEY_V1"]
 
