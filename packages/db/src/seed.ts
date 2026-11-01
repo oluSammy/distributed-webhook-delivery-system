@@ -8,7 +8,7 @@ import {
 import postgres from "postgres";
 import { requireEnv } from "./helpers.ts";
 
-const CONSUMER_URL = "http://localhost:4000";
+const CONSUMER_URL = process.env.WDS_CONSUMER_URL ?? "http://localhost:4000";
 
 type SeedTenant = {
   name: string;
