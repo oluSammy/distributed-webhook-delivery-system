@@ -31,10 +31,7 @@ export async function createDeliveries(sql: Sql): Promise<DeliveriesCreated> {
          and en.state <> 'deleted'
          and en.created_at <= p.created_at
         join endpoint_subscriptions s on s.endpoint_id = en.id
-        where s.event_type_pattern = '*'
-           or s.event_type_pattern = p.type
-           or (s.event_type_pattern like '%.*'
-               and starts_with(p.type, left(s.event_type_pattern, -1)))
+        where event_type_matches(s.event_type_pattern, p.type)
       ),
       new_deliveries as (
         insert into deliveries (tenant_id, event_id, event_created_at, endpoint_id)

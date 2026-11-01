@@ -9,12 +9,14 @@ import {
 } from "@wds/core";
 import type { LimiterApi } from "@wds/limiter/contract";
 import type { Sql } from "postgres";
+import { decodeCursor, encodeCursor } from "../cursor";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { parkDeliveries, unparkDeliveries } from "../parking";
 import { createRouter } from "../router";
 
 const MAX_SUBSCRIPTIONS = 50;
+const MAX_REPLAY = 1000;
 const EndpointUrl = z.url().max(2048);
 
 const SubscriptionPattern = z
@@ -127,6 +129,43 @@ const deleteEndpoint = createRoute({
     },
   },
 });
+
+const ReplayBody = z.object({
+  since: z.iso.datetime({ offset: true }), // events created at or after
+  until: z.iso.datetime({ offset: true }), // events created before
+  limit: z.number().int().min(1).max(MAX_REPLAY).default(500),
+  cursor: z.string().max(200).optional(), // next_cursor from the previous call
+});
+
+const replayEndpoint = createRoute({
+  method: "post",
+  path: "/{id}/replay",
+  request: {
+    params: EndpointParams,
+    body: { content: { "application/json": { schema: ReplayBody } }, required: true },
+  },
+  responses: {
+    202: {
+      description:
+        "New deliveries to this endpoint for up to limit matching events, oldest first. Call again with next_cursor until it's null.",
+      content: {
+        "application/json": {
+          schema: z.object({
+            deliveries_created: z.number(),
+            next_cursor: z.string().nullable(),
+          }),
+        },
+      },
+    },
+  },
+});
+
+type ReplayRow = {
+  created: number;
+  more: boolean;
+  last_position: string | null;
+  last_id: string | null;
+};
 
 // healthy: sending normally. degraded: the endpoint is throttling us, or at least half of the
 // recent attempts failed. disabled: its breaker tripped. paused: it, its tenant or everything is.
@@ -356,6 +395,75 @@ endpoints.openapi(getEndpointHealth, async (c) => {
     },
     200,
   );
+});
+
+// Re-sends the tenant's events from a time range to this endpoint (a backfill after an outage), as
+// new deliveries due now. Every event the endpoint's subscriptions match today counts, even from
+// before it existed, but not events whose own deliveries haven't been created yet: those still get
+// theirs. Each one carries its event's id as webhook-id, so a consumer that dedupes skips what it
+// already has. At most limit per call: the cursor says where the next call starts.
+endpoints.openapi(replayEndpoint, async (c) => {
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+  if (Date.parse(body.since) >= Date.parse(body.until)) {
+    throw new ApiError(400, "invalid_request", "since must be before until");
+  }
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+  await findEndpoint(sql, tenantId, id);
+  const after = body.cursor === undefined ? null : decodeCursor(body.cursor);
+
+  // One more than limit is picked, to tell whether another call is needed.
+  const row = firstRow(
+    await sql<ReplayRow[]>`
+        with picked as (
+          select ev.id, ev.created_at
+          from events ev
+          where ev.tenant_id = ${tenantId}
+            and ev.created_at >= ${body.since} and ev.created_at < ${body.until}
+            and ev.deliveries_created_at is not null
+            ${after === null ? sql`` : sql`and (ev.created_at, ev.id) > (${after.position}::text::timestamptz, ${after.id})`}
+            and exists (
+              select 1 from endpoint_subscriptions s
+              where s.endpoint_id = ${id} and event_type_matches(s.event_type_pattern, ev.type)
+            )
+          order by ev.created_at, ev.id
+          limit ${body.limit + 1}
+        ),
+        page as (
+          select id, created_at from picked order by created_at, id limit ${body.limit}
+        ),
+        created as (
+          insert into deliveries (tenant_id, event_id, event_created_at, endpoint_id)
+          select ${tenantId}::uuid, id, created_at, ${id}::uuid from page
+          returning id, created_at
+        ),
+        queued as (
+          insert into delivery_queue (delivery_id, delivery_created_at, tenant_id, endpoint_id, next_attempt_at)
+          select id, created_at, ${tenantId}::uuid, ${id}::uuid, now() from created
+        ),
+        tenants as (
+          insert into tenants_with_work (tenant_id)
+          select ${tenantId}::uuid where exists (select 1 from created)
+          on conflict do nothing
+        ),
+        last as (
+          select created_at::text as position, id from page order by created_at desc, id desc limit 1
+        )
+        select (select count(*) from created)::int as created,
+               (select count(*) from picked) > ${body.limit} as more,
+               (select position from last) as last_position,
+               (select id from last) as last_id
+      `,
+  );
+  if (row.created > 0) {
+    c.executionCtx.waitUntil(wakeDispatcher(c.env));
+  }
+  const nextCursor =
+    row.more && row.last_position !== null && row.last_id !== null
+      ? encodeCursor({ position: row.last_position, id: row.last_id })
+      : null;
+  return c.json({ deliveries_created: row.created, next_cursor: nextCursor }, 202);
 });
 
 // Asks the endpoint's limiter Durable Object (one per endpoint, named by its id) for its state.
