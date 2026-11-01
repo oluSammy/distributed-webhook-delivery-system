@@ -1,4 +1,4 @@
-import { firstRow } from "@wds/core";
+import { firstRow, generateApiKey } from "@wds/core";
 import { createDb } from "@wds/db";
 import type { Sql } from "postgres";
 
@@ -28,6 +28,16 @@ export async function makeTenant(sql: Sql, paused = false): Promise<string> {
       `,
   );
   return id;
+}
+
+// A tenant API key, as the seed makes them. Returns the key itself, for the Authorization header.
+export async function makeApiKey(sql: Sql, tenantId: string): Promise<string> {
+  const { key, prefix, hash } = await generateApiKey("tenant");
+  await sql`
+    insert into api_keys (tenant_id, scope, key_prefix, key_hash)
+    values (${tenantId}, 'tenant', ${prefix}, ${hash})
+  `;
+  return key;
 }
 
 export async function makeEndpoint(

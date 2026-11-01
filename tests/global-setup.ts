@@ -1,9 +1,9 @@
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { runner } from "node-pg-migrate";
 import postgres from "postgres";
 import { TEST_DATABASE_URL } from "./db.ts";
 
-const MIGRATIONS = fileURLToPath(new URL("../packages/db/migrations", import.meta.url));
+const MIGRATIONS = join(import.meta.dirname, "../packages/db/migrations");
 
 // Runs once before the tests: creates the test database if it's missing, then applies any
 // migrations it hasn't had yet, exactly as pnpm migrate does for the real one.
