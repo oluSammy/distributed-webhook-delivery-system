@@ -49,6 +49,7 @@ export async function runMaintenance(env: Env): Promise<void> {
     await run("unparked", () => unparkReleased(sql));
     await run("tenants", () => repairTenantsWithWork(sql));
     await run("dropped", () => dropExpiredPartitions(sql, parseRetention(env)));
+    await run("attempts", () => dropExpiredAttempts(sql, parseRetention(env)));
     await run("keys", () => deleteExpiredKeys(sql));
     // Last, so whatever the repairs made due is sent straight away. A wake-up or alarm can also be
     // lost, for example while the dispatcher is being redeployed. Waking it here means waiting
@@ -162,4 +163,27 @@ async function deleteExpiredKeys(sql: Sql): Promise<number> {
     }
   }
   return deleted;
+}
+
+// Drops the daily partitions of delivery_attempts older than their retention, keeping dead
+// deliveries' attempts in dead_delivery_attempts. Archived attempts are deleted a day after their
+// deliveries could have gone: deliveries are dropped a whole day at a time, so a dead delivery can
+// outlive its retention by up to a day. Returns what each part did.
+async function dropExpiredAttempts(
+  sql: Sql,
+  retention: Retention,
+): Promise<{ dropped: number; archived: number; deleted: number }> {
+  const [partitions] = await sql<{ dropped: number; archived: number }[]>`
+      select dropped, archived
+      from drop_attempt_partitions_before(now() - make_interval(days => ${retention.attemptDays}))
+    `;
+  const deleted = await sql`
+      delete from dead_delivery_attempts
+      where started_at < now() - make_interval(days => ${retention.deliveryDays + 1})
+    `;
+  return {
+    dropped: partitions?.dropped ?? 0,
+    archived: partitions?.archived ?? 0,
+    deleted: deleted.count,
+  };
 }
