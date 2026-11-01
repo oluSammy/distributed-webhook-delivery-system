@@ -191,12 +191,18 @@ importers:
 
   tests:
     dependencies:
+      '@wds/api':
+        specifier: workspace:*
+        version: link:../apps/api
       '@wds/core':
         specifier: workspace:*
         version: link:../packages/core
       '@wds/db':
         specifier: workspace:*
         version: link:../packages/db
+      '@wds/delivery':
+        specifier: workspace:*
+        version: link:../apps/delivery
       postgres:
         specifier: ^3.4.9
         version: 3.4.9

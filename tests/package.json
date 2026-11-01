@@ -7,8 +7,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@wds/api": "workspace:*",
     "@wds/core": "workspace:*",
     "@wds/db": "workspace:*",
+    "@wds/delivery": "workspace:*",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
