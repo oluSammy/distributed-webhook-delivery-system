@@ -1,0 +1,20 @@
+{
+  "name": "@wds/tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wds/core": "workspace:*",
+    "@wds/db": "workspace:*",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.23.1",
+    "vitest": "^4.1.11"
+  }
+}
