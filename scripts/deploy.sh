@@ -19,7 +19,7 @@ deploy() {
     shift
     echo "--- $app"
     npx wrangler deploy -c "apps/$app/wrangler.toml" "$@"
-  }
+}
 
 deploy limiter
 deploy creator
