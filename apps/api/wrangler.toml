@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "local-dev-placeholder"
+id = "5f6b8a852102406492ee7658ee20bbaf"
 localConnectionString = "postgres://webhooks:webhooks@localhost:5433/webhooks"
 
 [[durable_objects.bindings]]

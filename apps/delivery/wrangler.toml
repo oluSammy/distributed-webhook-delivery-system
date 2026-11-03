@@ -1,13 +1,15 @@
 name = "wds-delivery"
 main = "src/index.ts"
 compatibility_date = "2026-08-15"
+# global_fetch_strictly_public tells Cloudflare: "treat every fetch() from this Worker as if it came from an ordinary computer on the internet."
+# The request goes out the normal public way, reaches the consumer like any other webhook would, and 1042 error never happens
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 workers_dev = false
 preview_urls = false
 
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "local-dev-placeholder"
+id = "5f6b8a852102406492ee7658ee20bbaf"
 localConnectionString = "postgres://webhooks:webhooks@localhost:5433/webhooks"
 
 [[durable_objects.bindings]]
