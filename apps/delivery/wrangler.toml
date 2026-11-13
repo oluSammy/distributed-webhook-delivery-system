@@ -1,8 +1,6 @@
 name = "wds-delivery"
 main = "src/index.ts"
 compatibility_date = "2026-08-15"
-# global_fetch_strictly_public tells Cloudflare: "treat every fetch() from this Worker as if it came from an ordinary computer on the internet."
-# The request goes out the normal public way, reaches the consumer like any other webhook would, and 1042 error never happens
 # Fetch every URL over the public internet. Without this, calling our own test consumer
 # (another Worker on this account's workers.dev) fails with Cloudflare error 1042.
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
