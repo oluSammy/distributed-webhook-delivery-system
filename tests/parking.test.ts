@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { parkDeliveries, unparkDeliveries } from "../apps/api/src/parking.ts";
+import { createDeliveries } from "../apps/creator/src/create-deliveries.ts";
 import { recordBreakerChange } from "../apps/delivery/src/breaker.ts";
 import { type ClaimedDelivery, claimDeliveries } from "../apps/delivery/src/claim.ts";
 import { type GiveBack, releaseClaims } from "../apps/delivery/src/record.ts";
@@ -137,5 +138,57 @@ describe("pause and resume (parkDeliveries, unparkDeliveries)", () => {
     await sql`update tenants set paused = false where id = ${tenant}`;
     expect(await unparkDeliveries(sql, [endpoint])).toBe(1);
     expect(await queueRow(sql, delivery)).toMatchObject({ parked: false, due: true });
+  });
+});
+
+describe("creating deliveries (createDeliveries)", () => {
+  // Sends a new event to the endpoint and creates its delivery. Returns the delivery's queue row.
+  async function newDelivery(tenantId: string, endpointId: string) {
+    await sql`insert into endpoint_subscriptions (endpoint_id, event_type_pattern)
+    values (${endpointId}, '*') on conflict do nothing
+  `;
+    await sql`insert into events (tenant_id, type, payload) values (${tenantId}, 'test.event', '{}')`;
+    expect(await createDeliveries(sql)).toEqual({ events: 1, deliveries: 1 });
+    const [row] = await sql<{ delivery_id: string }[]>`
+    select delivery_id from delivery_queue where endpoint_id = ${endpointId}
+    order by delivery_created_at desc limit 1
+  `;
+    return { id: row?.delivery_id ?? "", queue: await queueRow(sql, row?.delivery_id ?? "") };
+  }
+
+  it("parks a new delivery while its endpoint, tenant or everything is paused", async () => {
+    const tenant = await makeTenant(sql);
+    const endpoint = await makeEndpoint(sql, tenant);
+    expect((await newDelivery(tenant, endpoint)).queue).toMatchObject({ parked: false, due: true });
+
+    await sql`update endpoints set state = 'paused' where id = ${endpoint}`;
+    expect((await newDelivery(tenant, endpoint)).queue).toMatchObject({ parked: true });
+
+    await sql`update endpoints set state = 'active' where id = ${endpoint}`;
+    await sql`update tenants set paused = true where id = ${tenant}`;
+    expect((await newDelivery(tenant, endpoint)).queue).toMatchObject({ parked: true });
+
+    await sql`update tenants set paused = false where id = ${tenant}`;
+    await sql`update global_settings set paused = true`;
+    expect((await newDelivery(tenant, endpoint)).queue).toMatchObject({ parked: true });
+  });
+
+  it("resuming the endpoint makes a parked new delivery due", async () => {
+    const tenant = await makeTenant(sql);
+    const endpoint = await makeEndpoint(sql, tenant, "paused");
+    const { id } = await newDelivery(tenant, endpoint);
+
+    await sql`update endpoints set state = 'active' where id = ${endpoint}`;
+    expect(await unparkDeliveries(sql, [endpoint])).toBe(1);
+    expect(await queueRow(sql, id)).toMatchObject({ parked: false, due: true });
+  });
+
+  it("a disabled endpoint's first new delivery is due, as its probe; later ones park", async () => {
+    const tenant = await makeTenant(sql);
+    const endpoint = await makeEndpoint(sql, tenant, "disabled");
+    expect((await newDelivery(tenant, endpoint)).queue).toMatchObject({ parked: false, due: true });
+
+    await sql`update delivery_queue set next_attempt_at = 'infinity' where endpoint_id = ${endpoint}`;
+    expect((await newDelivery(tenant, endpoint)).queue).toMatchObject({ parked: true });
   });
 });

@@ -40,7 +40,17 @@ export async function createDeliveries(sql: Sql): Promise<DeliveriesCreated> {
       ),
       queued as (
         insert into delivery_queue (delivery_id, delivery_created_at, tenant_id, endpoint_id, next_attempt_at)
-        select id, created_at, tenant_id, endpoint_id, now() from new_deliveries
+        select d.id, d.created_at, d.tenant_id, d.endpoint_id,
+                case
+                  when h.paused then 'infinity'::timestamptz
+                  when h.disabled and exists (
+                    select 1 from delivery_queue q
+                    where q.endpoint_id = d.endpoint_id and q.next_attempt_at = 'infinity'
+                  ) then 'infinity'::timestamptz
+                  else now()
+                end
+        from new_deliveries d
+        join endpoint_holds h on h.endpoint_id = d.endpoint_id
         returning tenant_id
       ),
       tenants as (
@@ -74,8 +84,8 @@ export async function createDeliveries(sql: Sql): Promise<DeliveriesCreated> {
     2. matched: work out who receives each event
     An endpoint receives an event when all of these hold:
   - Same tenant
-  - state <> 'deleted'. Paused and disabled endpoints do still get deliveries created; this is presumably so
-    they can be sent on resume, though the pause and resume logic isn't built yet.
+  - state <> 'deleted'. Paused and disabled endpoints still get deliveries, so nothing is lost: they're
+    queued parked, and sent after the resume or the breaker's close.
   - en.created_at <= p.created_at: the endpoint already existed when the event happened. An endpoint you
     register today doesn't receive yesterday's backlog.
   - A subscription matches:

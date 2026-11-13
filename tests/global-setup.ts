@@ -30,4 +30,11 @@ export default async function setup(): Promise<void> {
     migrationsTable: "pgmigrations",
     log: () => {},
   });
+
+  const sql = postgres(url.href, { max: 1, onnotice: () => {} });
+  try {
+    await sql`select ensure_partitions(7)`;
+  } finally {
+    await sql.end();
+  }
 }
