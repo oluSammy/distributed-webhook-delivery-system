@@ -184,6 +184,9 @@ importers:
       '@wds/core':
         specifier: workspace:*
         version: link:../packages/core
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
     devDependencies:
       '@types/node':
         specifier: ^26.6.4

@@ -4,10 +4,12 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc",
-    "smoke": "node --env-file-if-exists=../.env smoke.ts"
+    "smoke": "node --env-file-if-exists=../.env smoke.ts",
+    "chaos": "node --env-file-if-exists=../.env chaos.ts"
   },
   "dependencies": {
-    "@wds/core": "workspace:*"
+    "@wds/core": "workspace:*",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@types/node": "^26.6.4"
