@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Classification } from "./classify.ts";
 
-// tenants.retry_policy. Every field is optional; a missing one takes the spec's default (§8.1).
+// tenants.retry_policy. Every field is optional; a missing one takes the default (§8.1).
 export const retryPolicySchema = z
   .object({
     base_seconds: z.int().min(10).max(3600).default(30), // 10 s – 1 h

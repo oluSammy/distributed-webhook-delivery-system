@@ -1,26 +1,32 @@
-// Chaos test (spec §23): kills the whole local stack (every Worker at once) while the Delivery
-// Worker is in the middle of a send, starts it again, and checks that the delivery is claimed
-// again once its lease runs out, and succeeds. The test consumer receives it twice: at-least-once.
-//
+// 1. Kill: kills the whole stack (every Worker at once) while the Delivery Worker is in the middle
+//    of a send, starts it again, and checks that the delivery is claimed again once its lease runs
+//    out, and succeeds. The test consumer receives it twice: at-least-once.
+// 2. Postgres restart: restarts the database while events are being sent, and checks that every
+//    event the API accepted (202) is stored and delivered.
+
 // It starts and stops the stack itself, so stop pnpm dev (T1) first. The test consumer
 // (pnpm consumer, T2) must be running. Exits with 1 when any check fails.
 //
 // WDS_SMOKE_KEY   the Smoke tenant's API key (printed by pnpm seed); required
+// WDS_SMOKE_KEY   the Smoke tenant's API key (printed by pnpm seed); required
 // DATABASE_URL    the local database, for the checks the API doesn't show; required
 // WDS_API_URL     default http://localhost:8787
 // WDS_CONSUMER_URL  default http://localhost:4000
+// WDS_PG_CONTAINER  the Postgres container to restart, default wds-postgres-1 (docker-compose.yml)
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
 import postgres from "postgres";
 
 const API_URL = process.env.WDS_API_URL ?? "http://localhost:8787";
 const CONSUMER_URL = process.env.WDS_CONSUMER_URL ?? "http://localhost:4000";
 const API_KEY = process.env.WDS_SMOKE_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
+const PG_CONTAINER = process.env.WDS_PG_CONTAINER ?? "wds-postgres-1";
 const EVENT_TYPE = "chaos.test";
 const ROOT = join(import.meta.dirname, "..");
 const LOG = join(tmpdir(), "wds-chaos-dev.log");
@@ -32,6 +38,14 @@ const LEASE_SECONDS = 90;
 // The consumer holds each request this long before answering: long enough to kill the stack
 // mid-send, and under the Delivery Worker's 10 s send timeout, so the resend succeeds.
 const HOLD_MS = 8000;
+
+// The Postgres restart: events are sent for SEND_MS by SENDERS loops at once, and the database
+// is restarted RESTART_AFTER_MS in. Then every accepted event has DRAIN_MS to be delivered: enough
+// for a lease (90 s) and a dispatcher retry after a failed tick (30 s).
+const SEND_MS = 20_000;
+const SENDERS = 4;
+const RESTART_AFTER_MS = 5000;
+const DRAIN_MS = 180_000;
 
 if (!API_KEY || !DATABASE_URL) {
   console.error("Set WDS_SMOKE_KEY and DATABASE_URL (both are in .env after pnpm seed)");
@@ -129,7 +143,7 @@ await sql`
 
 console.log(`starting the stack (log: ${LOG})`);
 let stack = await startAndWait();
-let endpointId: string | null = null;
+const endpointIds: string[] = [];
 try {
   const run = crypto.randomUUID();
   const url = new URL(`/timeout?ms=${HOLD_MS}&run=${run}`, CONSUMER_URL);
@@ -138,7 +152,7 @@ try {
     description: "chaos kill",
     subscriptions: [EVENT_TYPE],
   });
-  endpointId = endpoint.id;
+  endpointIds.push(endpoint.id);
   const event = await api<{ id: string }>("POST", "/api/events", {
     type: EVENT_TYPE,
     payload: { run },
@@ -198,9 +212,93 @@ try {
     count === 2,
     `the consumer received it ${count} time(s), expected 2 (once before the kill)`,
   );
+
+  // Done with it: it would get the restart's events too, and hold each one for HOLD_MS.
+  await api("DELETE", `/api/endpoints/${endpoint.id}`);
+
+  console.log("\nPostgres restart: sending events while the database restarts");
+  const restartRun = crypto.randomUUID();
+  const okEndpoint = await api<{ id: string }>("POST", "/api/endpoints", {
+    url: new URL(`/ok?run=${restartRun}`, CONSUMER_URL).toString(),
+    description: "chaos restart",
+    subscriptions: [EVENT_TYPE],
+  });
+  endpointIds.push(okEndpoint.id);
+
+  // Each loop sends one event at a time until SEND_MS is up. accepted: the ids the API answered
+  // 202 for; refused: requests that failed (an error status, or no answer).
+  const accepted: string[] = [];
+  let refused = 0;
+  const sendUntil = Date.now() + SEND_MS;
+  const sendLoop = async () => {
+    while (Date.now() < sendUntil) {
+      try {
+        const event = await api<{ id: string }>("POST", "/api/events", {
+          type: EVENT_TYPE,
+          payload: { run: restartRun },
+        });
+        accepted.push(event.id);
+      } catch {
+        refused++;
+        await sleep(100);
+      }
+    }
+  };
+  const sending = Promise.all(Array.from({ length: SENDERS }, sendLoop));
+  await sleep(RESTART_AFTER_MS);
+  await promisify(execFile)("docker", ["restart", PG_CONTAINER]);
+  console.log(`restarted ${PG_CONTAINER}`);
+  await sending;
+  console.log(`${accepted.length} events accepted, ${refused} requests refused\n`);
+
+  // What became of the accepted events: stored, deliveries created, delivered.
+  const progress = async () => {
+    const [row] = await sql<
+      { stored: number; uncreated: number; deliveries: number; succeeded: number }[]
+    >`
+        select count(distinct e.id)::int as stored,
+               count(distinct e.id) filter (where e.deliveries_created_at is null)::int as uncreated,
+               count(d.id)::int as deliveries,
+               count(d.id) filter (where d.state = 'succeeded')::int as succeeded
+        from events e
+        left join deliveries d on d.event_id = e.id and d.event_created_at = e.created_at
+          and d.endpoint_id = ${okEndpoint.id}
+        where e.id = any(${sql.array(accepted)}::uuid[])
+      `;
+    return row;
+  };
+  const drainStart = Date.now();
+  let done = await progress();
+  while ((done?.succeeded ?? 0) < accepted.length && Date.now() < drainStart + DRAIN_MS) {
+    await sleep(2000);
+    done = await progress();
+  }
+  console.log(`waited ${Math.round((Date.now() - drainStart) / 1000)} s for the deliveries`);
+
+  check(refused > 0, `the restart was felt: ${refused} requests refused while it was down`);
+  check(
+    done?.stored === accepted.length,
+    `${done?.stored} of ${accepted.length} accepted events stored`,
+  );
+  check(done?.uncreated === 0, `${done?.uncreated} stored events still without deliveries`);
+  check(
+    done?.deliveries === accepted.length,
+    `${done?.deliveries} deliveries for ${accepted.length} events, expected one each`,
+  );
+  check(
+    done?.succeeded === accepted.length,
+    `${done?.succeeded} of ${accepted.length} deliveries succeeded`,
+  );
+  // A refused request may still have stored its event: the database committed, then the answer
+  // was lost. That's not a loss, and the sender would send it again.
+  const [stored] = await sql<{ count: number }[]>`
+      select count(*)::int from events
+      where payload ->> 'run' = ${restartRun} and created_at > now() - interval '1 hour'
+    `;
+  console.log(`(${(stored?.count ?? 0) - accepted.length} stored events had no 202 answer)`);
 } finally {
-  if (endpointId !== null) {
-    await api("DELETE", `/api/endpoints/${endpointId}`).catch(() => {});
+  for (const id of endpointIds) {
+    await api("DELETE", `/api/endpoints/${id}`).catch(() => {});
   }
   stack.kill();
   await sql.end();
