@@ -29,6 +29,17 @@ const RECORD_MARGIN_MS = 5000;
 // limits: an outage holds deliveries back instead of letting them flood the endpoint.
 const LIMITER_DOWN_WAIT_MS = 10_000;
 
+// Faults the chaos tests (pnpm chaos) inject after a send. kill: the result is never written, as if
+// this Delivery Worker died. stall: the result is written FAULT_STALL_MS later, after the lease.
+type Fault = "kill" | "stall";
+
+// The deliveries this Delivery Worker instance has already faulted. Each is faulted once, so its
+// resend, after the lease runs out, goes through.
+const faulted = new Set<string>();
+
+// Writes one delivery's outcome, with the claim token check (recordOutcome). True if it applied.
+type OutcomeWrite = (sql: Sql) => Promise<boolean>;
+
 export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryApi {
   async runBatch(shard: number): Promise<BatchResult> {
     const sql = createDb(this.env.HYPERDRIVE.connectionString);
@@ -64,9 +75,11 @@ export default class Delivery extends WorkerEntrypoint<Env> implements DeliveryA
               return;
             }
             unsent.delete(claim);
+            const fault = faultFor(this.env, claim);
             let result: Classification | null = null;
             try {
-              result = await deliver(sql, sender, claim);
+              result = await deliver(sql, sender, claim, fault, (write) => this.ctx.waitUntil(writeLate(this.env, claim, write)),
+              );
             } catch (error) {
               // The claim stays leased and comes back when the lease runs out.
               console.error(`delivery ${claim.delivery_id}: failed to deliver`, error);
@@ -156,11 +169,14 @@ async function releaseSlot(
 }
 
 // Sends one claimed delivery and records what happened. Returns what the endpoint's answer meant,
-// for the limiter, or null when nothing was sent.
+// for the limiter, or null when nothing was sent. With a fault, the outcome is not written now:
+// kill throws instead, and stall hands the write to later.
 async function deliver(
   sql: Sql,
   sender: Sender,
   claim: ClaimedDelivery,
+  fault: Fault | null,
+  later: (write: OutcomeWrite) => void,
 ): Promise<Classification | null> {
   const result = await sender.send(claim);
   const label = `delivery ${claim.delivery_id} attempt ${claim.attempt_number} → ${claim.url}`;
@@ -184,15 +200,27 @@ async function deliver(
     parseRetryPolicy(claim.retry_policy),
     now,
   );
-  const applied = await recordOutcome(sql, claim, step, {
-    outcome: classification.outcome,
-    errorKind: classification.errorKind,
-    status: result.kind === "response" ? result.status : null,
-    body: result.kind === "response" ? result.body : null,
-    signedTimestamp: result.signedTimestamp,
-    startedAt: result.startedAt,
-    latencyMs: result.latencyMs,
-  });
+  const write: OutcomeWrite = (db) =>
+    recordOutcome(db, claim, step, {
+      outcome: classification.outcome,
+      errorKind: classification.errorKind,
+      status: result.kind === "response" ? result.status : null,
+      body: result.kind === "response" ? result.body : null,
+      signedTimestamp: result.signedTimestamp,
+      startedAt: result.startedAt,
+      latencyMs: result.latencyMs,
+    });
+
+  if (fault === "kill") {
+    throw new Error(`${label}: sent, then killed by FAULT_KILL_AFTER_SEND before recording it`);
+  }
+  if (fault === "stall") {
+    console.log(`${label}: sent, recording stalled by FAULT_STALL_MS`);
+    later(write);
+    return classification;
+  }
+
+  const applied = await write(sql);
 
   const what =
     result.kind === "response"
@@ -218,5 +246,42 @@ function describe(step: NextStep, applied: boolean): string {
       return `dead (${step.reason})`;
     case "pending":
       return `retry at ${step.nextAttemptAt.toISOString()}`;
+  }
+}
+
+// The fault the chaos tests ask for on this delivery, or null: its URL has fault=kill or fault=stall,
+// and the matching flag is set in .dev.vars. wrangler.toml leaves both off, so the cloud never faults.
+function faultFor(env: Env, claim: ClaimedDelivery): Fault | null {
+  if (faulted.has(claim.delivery_id)) {
+    return null;
+  }
+  const wanted = new URL(claim.url).searchParams.get("fault");
+  const fault =
+    wanted === "kill" && env.FAULT_KILL_AFTER_SEND === "true"
+      ? "kill"
+      : wanted === "stall" && Number(env.FAULT_STALL_MS) > 0
+        ? "stall"
+        : null;
+  if (fault !== null) {
+    faulted.add(claim.delivery_id);
+  }
+  return fault;
+}
+
+// The stall fault: waits FAULT_STALL_MS, then writes the outcome, as a Delivery Worker that froze
+// mid-batch would. It runs after runBatch has returned, so the dispatcher isn't held up and can
+// re-claim the delivery meanwhile; that's why it opens its own connection.
+async function writeLate(env: Env, claim: ClaimedDelivery, write: OutcomeWrite): Promise<void> {
+  await scheduler.wait(Number(env.FAULT_STALL_MS));
+  const sql = createDb(env.HYPERDRIVE.connectionString);
+  try {
+    const applied = await write(sql);
+    console.log(
+      `delivery ${claim.delivery_id}: stalled outcome ${applied ? "applied" : "rejected: stale claim"}`,
+    );
+  } catch (error) {
+    console.error(`delivery ${claim.delivery_id}: stalled outcome failed`, error);
+  } finally {
+    await sql.end();
   }
 }

@@ -22,3 +22,6 @@ required = ["MASTER_KEY_V1"]
 
 [vars]
 ALLOW_LOCAL_ENDPOINTS = "false"
+# Fault injection for pnpm chaos, off here so it's off in the cloud; .dev.vars turns it on locally.
+FAULT_KILL_AFTER_SEND = "false"
+FAULT_STALL_MS = "0"

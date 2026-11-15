@@ -2,3 +2,7 @@
 MASTER_KEY_V1=
 # Local development only: allow http:// and localhost/private endpoint URLs (the seed's test consumer).
 ALLOW_LOCAL_ENDPOINTS=true
+# Local only, for pnpm chaos: fault deliveries whose URL has fault=kill or fault=stall, once each.
+# kill: the result of the send is never written. stall: it's written this many ms later (past the 90 s lease).
+FAULT_KILL_AFTER_SEND=true
+FAULT_STALL_MS=100000
