@@ -26,5 +26,27 @@ services:
       timeout: 3s
       retries: 15
 
+  # A connection pool in front of Postgres, standing in for Hyperdrive's pool during load tests.
+  # Only started with the bench profile (pnpm dev:bench); pnpm dev leaves it off.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.26.1-p0
+    profiles: [bench]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres # the postgres service above, on Compose's own network
+      DB_PORT: 5432
+      DB_USER: webhooks
+      DB_PASSWORD: webhooks
+      DB_NAME: webhooks
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction # a connection is lent for one transaction, as Hyperdrive does
+      DEFAULT_POOL_SIZE: 40 # connections to Postgres, shared by every client
+      MAX_CLIENT_CONN: 1000 # connections the Workers may open to the pool
+      MAX_PREPARED_STATEMENTS: 500 # postgres.js prepares its queries; the pool tracks them per connection
+    ports:
+      - "6433:5432"
+
 volumes:
   pgdata:
