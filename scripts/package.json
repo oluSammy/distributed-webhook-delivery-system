@@ -5,6 +5,7 @@
   "scripts": {
     "typecheck": "tsc",
     "smoke": "node --env-file-if-exists=../.env smoke.ts",
+    "invariant": "node --env-file-if-exists=../.env invariant.ts",
     "chaos": "node --env-file-if-exists=../.env chaos.ts"
   },
   "dependencies": {
