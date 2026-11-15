@@ -128,4 +128,51 @@ describe("a delivery's lifecycle (claim, then recordOutcome)", () => {
       { attempt_number: 1, outcome: "non_retryable", stale: false },
     ]);
   });
+
+  it("a stalled holder's write after the delivery succeeded is refused, and kept as stale", async () => {
+    const tenant = await makeTenant(sql);
+    const id = await makeDelivery(sql, tenant, await makeEndpoint(sql, tenant));
+
+    // Holder 1 claims and sends, then stalls before recording: its send failed with a 500.
+    const stalled = await claimOne();
+    const stalledSend = attempt("failure", 500);
+    // Its lease runs out. Holder 2 claims the delivery, sends it, and records a success.
+    await sql`update delivery_queue set next_attempt_at = now() where delivery_id = ${id}`;
+    const current = await claimOne();
+    expect(await recordOutcome(sql, current, { state: "succeeded" }, attempt("success", 200))).toBe(
+      true,
+    );
+
+    // Holder 1 wakes up and records its failure, asking for a retry.
+    expect(await recordOutcome(sql, stalled, retryNow, stalledSend)).toBe(false);
+    expect(await deliveryRow(id)).toMatchObject({
+      state: "succeeded",
+      attempt_count: 0,
+      finished: true,
+    });
+    expect(await queueRow(sql, id)).toBeNull();
+    expect(await attempts(id)).toEqual([
+      { attempt_number: 1, outcome: "failure", stale: true },
+      { attempt_number: 1, outcome: "success", stale: false },
+    ]);
+  });
+
+  it("a stalled holder's write after a retry was scheduled is refused: no extra attempt is counted", async () => {
+    const tenant = await makeTenant(sql);
+    const id = await makeDelivery(sql, tenant, await makeEndpoint(sql, tenant));
+
+    const stalled = await claimOne();
+    const stalledSend = attempt("failure", 500);
+    await sql`update delivery_queue set next_attempt_at = now() where delivery_id = ${id}`;
+    const current = await claimOne();
+    // Holder 2's send fails too, and it schedules a retry: the queue row stays, unclaimed.
+    const later: NextStep = { state: "pending", nextAttemptAt: new Date(Date.now() + 60_000) };
+    expect(await recordOutcome(sql, current, later, attempt("failure", 500))).toBe(true);
+
+    // Holder 1 wakes up and records its failure. Applied, it would count a second failure
+    // and move the retry to now.
+    expect(await recordOutcome(sql, stalled, retryNow, stalledSend)).toBe(false);
+    expect(await deliveryRow(id)).toMatchObject({ state: "pending", attempt_count: 1 });
+    expect(await queueRow(sql, id)).toMatchObject({ due: false, claimed: false });
+  });
 });
