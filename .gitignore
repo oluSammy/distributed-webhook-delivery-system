@@ -6,6 +6,8 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+docs/
+
 docs/PLAN.md
 docs/WALKTHROUGH.md
 docs/webhook-delivery-system-spec-v2.pdf
