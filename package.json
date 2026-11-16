@@ -19,6 +19,7 @@
     "smoke": "pnpm --filter @wds/scripts smoke",
     "chaos": "pnpm --filter @wds/scripts chaos",
     "invariant": "pnpm --filter @wds/scripts invariant",
+    "bench:matching": "pnpm --filter @wds/scripts bench:matching",
     "deploy:cloud": "bash scripts/deploy.sh"
   },
   "devDependencies": {
