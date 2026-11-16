@@ -20,6 +20,8 @@
     "chaos": "pnpm --filter @wds/scripts chaos",
     "invariant": "pnpm --filter @wds/scripts invariant",
     "bench:matching": "pnpm --filter @wds/scripts bench:matching",
+    "bench:dispatch": "pnpm --filter @wds/scripts bench:dispatch",
+    "bench:fairness": "pnpm --filter @wds/scripts bench:fairness",
     "deploy:cloud": "bash scripts/deploy.sh"
   },
   "devDependencies": {

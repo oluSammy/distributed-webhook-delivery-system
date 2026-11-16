@@ -48,6 +48,7 @@ export async function runMaintenance(env: Env): Promise<void> {
     await run("cancelled", () => cancelOnDeletedEndpoints(sql));
     await run("unparked", () => unparkReleased(sql));
     await run("tenants", () => repairTenantsWithWork(sql));
+    await run("waiting", () => repairTenantsWithEvents(sql));
     await run("dropped", () => dropExpiredPartitions(sql, parseRetention(env)));
     await run("attempts", () => dropExpiredAttempts(sql, parseRetention(env)));
     await run("keys", () => deleteExpiredKeys(sql));
@@ -118,6 +119,19 @@ async function repairTenantsWithWork(sql: Sql): Promise<{ removed: number; added
       on conflict do nothing
     `;
   return { removed: removed.count, added: added.count };
+}
+
+// The Creator Worker only takes events from tenants in tenants_with_events. The API Worker adds the
+// tenant with every event it stores, so this finds nothing unless events were stored some other
+// way (by hand, or a script). Puts back any tenant with waiting events that's missing. Returns how
+// many. Tenants with none left are removed by the Creator Worker as it serves them.
+async function repairTenantsWithEvents(sql: Sql): Promise<number> {
+  const added = await sql`
+      insert into tenants_with_events (tenant_id)
+      select distinct tenant_id from events where deliveries_created_at is null
+      on conflict do nothing
+    `;
+  return added.count;
 }
 
 // Drops the daily partitions of events and deliveries older than their retention, except any a

@@ -7,6 +7,8 @@
     "smoke": "node --env-file-if-exists=../.env smoke.ts",
     "invariant": "node --env-file-if-exists=../.env invariant.ts",
     "bench:matching": "node --env-file-if-exists=../.env bench-matching.ts",
+    "bench:dispatch": "node --env-file-if-exists=../.env bench-dispatch.ts",
+    "bench:fairness": "node --env-file-if-exists=../.env bench-fairness.ts",
     "chaos": "node --env-file-if-exists=../.env chaos.ts"
   },
   "dependencies": {

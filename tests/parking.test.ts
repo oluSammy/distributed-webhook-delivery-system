@@ -148,6 +148,7 @@ describe("creating deliveries (createDeliveries)", () => {
     values (${endpointId}, '*') on conflict do nothing
   `;
     await sql`insert into events (tenant_id, type, payload) values (${tenantId}, 'test.event', '{}')`;
+    await sql`insert into tenants_with_events (tenant_id) values (${tenantId}) on conflict do nothing`;
     expect(await createDeliveries(sql)).toEqual({ events: 1, deliveries: 1 });
     const [row] = await sql<{ delivery_id: string }[]>`
     select delivery_id from delivery_queue where endpoint_id = ${endpointId}

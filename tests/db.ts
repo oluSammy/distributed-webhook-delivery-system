@@ -15,7 +15,7 @@ export async function reset(sql: Sql): Promise<void> {
   await sql`
       truncate tenants, api_keys, event_types, endpoints, endpoint_subscriptions, endpoint_secrets,
         events, idempotency_keys, deliveries, delivery_attempts, dead_delivery_attempts,
-        delivery_queue, tenants_with_work, notifications
+        delivery_queue, tenants_with_work, notifications, tenants_with_events
       restart identity cascade
     `;
   await sql`update global_settings set paused = false`;

@@ -1,7 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { firstRow, requestHash } from "@wds/core";
 import { bodyLimit } from "hono/body-limit";
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
@@ -187,9 +187,13 @@ events.openapi(getEvent, async (c) => {
 async function insertEvent(sql: Sql, tenantId: string, type: string, payload: EventPayload) {
   const { created_at, id } = firstRow(
     await sql<{ id: string; created_at: Date }[]>`
-    insert into events (tenant_id, type, payload)
-    values (${tenantId}, ${type}, ${sql.json(payload)})
-    returning id, created_at
+    with inserted as (
+      insert into events (tenant_id, type, payload)
+      values (${tenantId}, ${type}, ${sql.json(payload)})
+      returning id, created_at
+    ),
+    waiting as (${markWaiting(sql, tenantId)})
+    select id, created_at from inserted
   `,
   );
 
@@ -232,6 +236,8 @@ async function insertEventOnce(
         insert into events (id, tenant_id, type, payload, idempotency_key, created_at)
         values (${fresh.id}, ${tenantId}, ${type}, ${tx.json(payload)}, ${idempotencyKey}, ${fresh.created_at})
       `;
+
+      await markWaiting(tx, tenantId);
 
       return { id: fresh.id, createdAt: fresh.created_at, replayed: false };
     }
@@ -285,14 +291,28 @@ async function insertEvents(
       select t.position, uuidv7() as id, t.item ->> 'type' as type, t.item -> 'payload' as payload
       from jsonb_array_elements(${sql.json(batch)}) with ordinality as t(item, position)
     ),
-    inserted as (
+     inserted as (
       insert into events (id, tenant_id, type, payload)
       select id, ${tenantId}, type, payload from input
       returning id, created_at
-    )
+    ),
+    waiting as (${markWaiting(sql, tenantId)})
     select inserted.id, input.type, inserted.created_at
     from inserted
     join input using (id)
     order by input.position
+  `;
+}
+
+// Puts the tenant in tenants_with_events, so the Creator Worker takes its new events in its turn.
+// Run in the same statement or transaction as the insert into events. If the tenant is already
+// there, it keeps its place in line, and "do update … where false" changes nothing but locks its
+// row until this commits: that's what stops the Creator Worker from removing the tenant while this
+// event isn't visible yet (see removeEmptied in apps/creator/src/create-deliveries.ts).
+function markWaiting(sql: Sql | TransactionSql, tenantId: string) {
+  return sql`
+    insert into tenants_with_events (tenant_id) values (${tenantId})
+    on conflict (tenant_id) do update set last_served_at = tenants_with_events.last_served_at
+    where false
   `;
 }
