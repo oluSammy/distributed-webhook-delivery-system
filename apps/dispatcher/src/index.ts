@@ -4,6 +4,7 @@ import type { CreateResult, CreatorApi } from "@wds/creator/contract";
 import { createDb } from "@wds/db";
 import type { DeliveryApi } from "@wds/delivery/contract";
 import type { DispatcherApi } from "./contract";
+import { findNextDue } from "./next-due";
 
 // After a probe is sent, the endpoint's next probe time moves on by this much, in case the probe
 // is lost. It's longer than a delivery claim's lease (90 s), so a probe still in flight isn't
@@ -150,19 +151,11 @@ export class Dispatcher extends DurableObject<Env> implements DispatcherApi {
     }
   }
 
-  // When the next tick is needed: the earliest next_attempt_at in the queue, or the earliest
-  // probe time of a disabled endpoint. Claimed rows count at the end of their lease, which is when
-  // they come back if their call crashed. Parked rows ('infinity') are never due.
+  // When the next tick is needed (see next-due.ts), as ms since the epoch.
   private async nextDueAt(): Promise<number | null | "failed"> {
     const sql = createDb(this.env.HYPERDRIVE.connectionString);
     try {
-      const [row] = await sql<{ next_due_at: Date | null }[]>`
-        select least(
-          (select min(next_attempt_at) from delivery_queue where next_attempt_at < 'infinity'),
-          (select min(probe_at) from endpoints where state = 'disabled')
-        ) as next_due_at
-      `;
-      return row?.next_due_at?.getTime() ?? null;
+      return (await findNextDue(sql))?.getTime() ?? null;
     } catch (error) {
       console.error("dispatcher: next-due query failed", error);
       return "failed";

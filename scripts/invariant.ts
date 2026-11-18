@@ -1,4 +1,4 @@
-// Invariant test (spec §1, §23): sends 10,000 events to one endpoint that fails 30% of the time,
+// Invariant test sends 10,000 events to one endpoint that fails 30% of the time,
 // waits until every delivery has finished, then checks the invariant with SQL:
 // 1. Every accepted event has its deliveries created exactly once.
 // 2. Every delivery reaches exactly one terminal state (succeeded or dead), and stays there.

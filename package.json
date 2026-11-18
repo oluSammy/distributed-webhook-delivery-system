@@ -22,6 +22,8 @@
     "bench:matching": "pnpm --filter @wds/scripts bench:matching",
     "bench:dispatch": "pnpm --filter @wds/scripts bench:dispatch",
     "bench:fairness": "pnpm --filter @wds/scripts bench:fairness",
+    "bench:backlog": "pnpm --filter @wds/scripts bench:backlog",
+    "bench:bloat": "pnpm --filter @wds/scripts bench:bloat",
     "deploy:cloud": "bash scripts/deploy.sh"
   },
   "devDependencies": {

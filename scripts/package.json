@@ -9,6 +9,8 @@
     "bench:matching": "node --env-file-if-exists=../.env bench-matching.ts",
     "bench:dispatch": "node --env-file-if-exists=../.env bench-dispatch.ts",
     "bench:fairness": "node --env-file-if-exists=../.env bench-fairness.ts",
+    "bench:backlog": "node --env-file-if-exists=../.env bench-backlog.ts",
+    "bench:bloat": "node --env-file-if-exists=../.env bench-bloat.ts",
     "chaos": "node --env-file-if-exists=../.env chaos.ts"
   },
   "dependencies": {
