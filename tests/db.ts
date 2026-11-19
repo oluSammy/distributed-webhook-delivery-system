@@ -40,6 +40,16 @@ export async function makeApiKey(sql: Sql, tenantId: string): Promise<string> {
   return key;
 }
 
+// An operator key, as the seed makes it
+export async function makeOperatorKey(sql: Sql): Promise<string> {
+  const { key, prefix, hash } = await generateApiKey("operator");
+  await sql`
+    insert into api_keys (tenant_id, scope, key_prefix, key_hash)
+    values (null, 'operator', ${prefix}, ${hash})
+  `;
+  return key;
+}
+
 export async function makeEndpoint(
   sql: Sql,
   tenantId: string,

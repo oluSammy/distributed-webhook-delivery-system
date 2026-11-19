@@ -1,6 +1,7 @@
 import { createDb } from "@wds/db";
 import { handleError } from "./errors";
 import { runMaintenance } from "./maintenance";
+import { collectMetrics } from "./metrics";
 import { requireOperator, requireTenant } from "./middleware/auth";
 import { withDb } from "./middleware/db";
 import { createRouter } from "./router";
@@ -44,6 +45,13 @@ app.route("/api/dlq", dlq);
 
 app.use("/admin/*", withDb, requireOperator);
 app.route("/admin", admin);
+
+app.use("/metrics", withDb, requireOperator);
+app.get("/metrics", async (c) =>
+  c.text(await collectMetrics(c.get("sql")), 200, {
+    "content-type": "text/plain; version=0.0.4; charset=utf-8",
+  }),
+);
 
 app.onError(handleError);
 
