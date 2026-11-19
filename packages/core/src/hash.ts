@@ -6,11 +6,12 @@ export async function sha256(data: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(data)));
 }
 
-export type ApiKeyScope = "tenant" | "operator";
+export type ApiKeyScope = "tenant" | "operator" | "metrics";
 
 const KEY_PREFIXES: Record<ApiKeyScope, string> = {
   tenant: "whk_live_",
   operator: "whk_op_",
+  metrics: "whk_metrics_",
 };
 
 const VISIBLE_PREFIX_LENGTH = 4;

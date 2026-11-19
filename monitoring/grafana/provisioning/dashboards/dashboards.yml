@@ -1,0 +1,8 @@
+# Loads every dashboard JSON file in /var/lib/grafana/dashboards on start (monitoring/grafana/dashboards).
+apiVersion: 1
+providers:
+  - name: webhooks
+    folder: ""
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

@@ -36,6 +36,9 @@ coverage
 # Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
 .grunt
 
+# The operator key Prometheus scrapes /metrics with (monitoring/prometheus.yml)
+monitoring/operator-key
+
 # Bower dependency directory (https://bower.io/)
 bower_components
 

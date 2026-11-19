@@ -35,6 +35,21 @@ export const requireOperator = createMiddleware<AppEnv>(async (c, next) => {
   await next();
 });
 
+// GET /metrics takes an operator key, or a metrics key: one made to be handed to a monitoring service
+export const requireMetricsReader = createMiddleware<AppEnv>(async (c, next) => {
+  const [row] = await c.get("sql")`
+        select 1
+        from api_keys
+        where key_hash = ${await bearerKeyHash(c)}
+          and revoked_at is null
+          and scope in ('operator', 'metrics')
+      `;
+  if (!row) {
+    throw new ApiError(401, "unauthorized", "Invalid metrics key");
+  }
+  await next();
+});
+
 // The hash of the request's API key (Authorization: Bearer <key>), which is how keys are stored.
 async function bearerKeyHash(c: Context<AppEnv>): Promise<Uint8Array> {
   const header = c.req.header("Authorization");

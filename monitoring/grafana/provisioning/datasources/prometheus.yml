@@ -1,0 +1,9 @@
+# Grafana's data source, set up on start: the Prometheus container, by its Compose service name.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true

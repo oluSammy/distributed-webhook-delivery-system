@@ -24,4 +24,9 @@ describe("generateApiKey", () => {
     for (let i = 0; i < 100; i++) keys.add((await generateApiKey("tenant")).key);
     expect(keys.size).toBe(100);
   });
+
+  it("creates a metrics key with the metrics prefix", async () => {
+    const { key } = await generateApiKey("metrics");
+    expect(key.startsWith("whk_metrics_")).toBe(true);
+  });
 });

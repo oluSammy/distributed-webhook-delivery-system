@@ -5,6 +5,7 @@ import {
   makeApiKey,
   makeDelivery,
   makeEndpoint,
+  makeMetricsKey,
   makeOperatorKey,
   makeTenant,
   reset,
@@ -29,9 +30,16 @@ async function metrics(key: string): Promise<Map<string, number>> {
 }
 
 describe("metrics (GET /metrics)", () => {
-  it("only an operator key can read them", async () => {
+  it("a tenant key can't read them", async () => {
     const tenant = await makeTenant(sql);
     expect((await api("/metrics", await makeApiKey(sql, tenant))).status).toBe(401);
+  });
+
+  it("a metrics key reads them, and nothing else", async () => {
+    const key = await makeMetricsKey(sql);
+    expect((await api("/metrics", key)).status).toBe(200);
+    expect((await api("/admin/pause", key, { method: "POST" })).status).toBe(401);
+    expect((await api("/api/endpoints", key)).status).toBe(401);
   });
 
   it("counts the queue by status, the DLQ, endpoints, recent attempts and pauses", async () => {

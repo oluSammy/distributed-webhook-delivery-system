@@ -40,6 +40,16 @@ export async function makeApiKey(sql: Sql, tenantId: string): Promise<string> {
   return key;
 }
 
+// A metrics key: no tenant, and it can only read GET /metrics. Returns the key itself.
+export async function makeMetricsKey(sql: Sql): Promise<string> {
+  const { key, prefix, hash } = await generateApiKey("metrics");
+  await sql`
+    insert into api_keys (tenant_id, scope, key_prefix, key_hash)
+    values (null, 'metrics', ${prefix}, ${hash})
+  `;
+  return key;
+}
+
 // An operator key, as the seed makes it
 export async function makeOperatorKey(sql: Sql): Promise<string> {
   const { key, prefix, hash } = await generateApiKey("operator");
