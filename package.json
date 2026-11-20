@@ -11,6 +11,7 @@
     "dev:bench": "COMPOSE_PROFILES=bench CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=postgres://webhooks:webhooks@localhost:6433/webhooks pnpm dev",
     "monitoring": "docker compose --profile monitoring up -d prometheus grafana",
     "dev": "docker compose up -d --wait && wrangler dev -c apps/api/wrangler.toml -c apps/dispatcher/wrangler.toml -c apps/delivery/wrangler.toml -c apps/creator/wrangler.toml -c apps/limiter/wrangler.toml --test-scheduled",
+    "dashboard": "pnpm --filter @wds/dashboard dev",
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "pnpm -r run --if-present test",

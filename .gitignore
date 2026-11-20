@@ -6,6 +6,8 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+next-env.d.ts
+
 docs/
 
 docs/PLAN.md
