@@ -10,9 +10,17 @@ export const metadata: Metadata = {
 };
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const themeScript =
+  'try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}';
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={inter.variable}>
+      <head>
+        {/* A saved light/dark choice, applied before the page paints (see ThemeSwitch). */}
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a fixed script we wrote, no outside data */}
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
         <ToastProvider>{children}</ToastProvider>
       </body>

@@ -66,6 +66,17 @@
   color-scheme: dark;
 }
 
+@custom-variant dark {
+  :root[data-theme="dark"] & {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) & {
+      @slot;
+    }
+  }
+}
+
 /* Tailwind class names for the colours above: bg-card, text-fg-2, border-line, text-dead... */
 @theme inline {
   --color-page: var(--page);
