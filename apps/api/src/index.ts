@@ -6,10 +6,12 @@ import { requireMetricsReader, requireOperator, requireTenant } from "./middlewa
 import { withDb } from "./middleware/db";
 import { createRouter } from "./router";
 import { admin } from "./routes/admin";
+import { auth } from "./routes/auth";
 import { deliveries } from "./routes/deliveries";
 import { dlq } from "./routes/dlq";
 import { endpoints } from "./routes/endpoints";
 import { events } from "./routes/events";
+import { me } from "./routes/me";
 
 const app = createRouter();
 
@@ -37,11 +39,15 @@ app.get("/readyz", async (c) => {
   }
 });
 
+// Signing in needs no key or session,
+app.route("/api/auth", auth);
+
 app.use("/api/*", withDb, requireTenant); // connection, then auth
 app.route("/api/events", events);
 app.route("/api/endpoints", endpoints);
 app.route("/api/deliveries", deliveries);
 app.route("/api/dlq", dlq);
+app.route("/api/me", me);
 
 app.use("/admin/*", withDb, requireOperator);
 app.route("/admin", admin);

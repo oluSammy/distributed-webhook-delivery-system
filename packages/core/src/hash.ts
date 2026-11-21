@@ -28,6 +28,17 @@ export async function generateApiKey(scope: ApiKeyScope): Promise<GeneratedApiKe
   return { key, prefix, hash: await sha256(key) };
 }
 
+// A new sign-in's token, for the session cookie, and its hash, which is what the sessions table
+export async function generateSessionToken(): Promise<{ token: string; hash: Uint8Array }> {
+  const token = toBase64Url(randomBytes(32));
+  return { token, hash: await sha256(token) };
+}
+
+// The hash of a session cookie's token, to find its row in sessions.
+export function hashSessionToken(token: string): Promise<Uint8Array> {
+  return sha256(token);
+}
+
 export function hashApiKey(key: string): Promise<Uint8Array> {
   return sha256(key);
 }

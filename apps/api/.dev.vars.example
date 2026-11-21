@@ -2,3 +2,6 @@
 MASTER_KEY_V1=
 # Local development only: allow http:// and localhost/private endpoint URLs (the seed's test consumer).
 ALLOW_LOCAL_ENDPOINTS=true
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+DASHBOARD_URL=http://localhost:3001

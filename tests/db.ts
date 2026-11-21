@@ -1,4 +1,4 @@
-import { firstRow, generateApiKey } from "@wds/core";
+import { firstRow, generateApiKey, generateSessionToken } from "@wds/core";
 import { createDb } from "@wds/db";
 import type { Sql } from "postgres";
 
@@ -59,6 +59,36 @@ export async function makeOperatorKey(sql: Sql): Promise<string> {
     values (null, 'operator', ${prefix}, ${hash})
   `;
   return key;
+}
+
+// A person in the tenant, signed in: a user, their membership and a session on it. Returns the
+// cookie header to send, as the dashboard's browser would. expired makes a session that has ended.
+export async function makeSession(
+  sql: Sql,
+  tenantId: string,
+  { role = "owner", expired = false }: { role?: "owner" | "member"; expired?: boolean } = {},
+): Promise<{ cookie: string; userId: string; sessionId: string }> {
+  const { token, hash } = await generateSessionToken();
+  const { userId, sessionId } = firstRow(
+    await sql<{ userId: string; sessionId: string }[]>`
+        with person as (
+          insert into users (github_id, login)
+          values ((random() * 1e9)::bigint, 'person-' || substr(md5(random()::text), 1, 6))
+          returning id
+        ),
+        membership as (
+          insert into memberships (tenant_id, user_id, role)
+          select ${tenantId}, id, ${role} from person
+          returning tenant_id, user_id
+        )
+        insert into sessions (token_hash, user_id, tenant_id, expires_at)
+        select ${hash}, user_id, tenant_id,
+               ${expired ? sql`now() - interval '1 minute'` : sql`now() + interval '1 day'`}
+        from membership
+        returning user_id as "userId", id as "sessionId"
+      `,
+  );
+  return { cookie: `session=${token}`, userId, sessionId };
 }
 
 export async function makeEndpoint(
