@@ -1,1 +1,135 @@
 @import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+
+  --page: light-dark(#f2f3f5, #0a0b0e);
+  --glow: light-dark(rgba(15, 118, 110, 0.05), rgba(45, 212, 191, 0.06));
+  --panel: light-dark(#ffffff, #101216);
+  --card: light-dark(#ffffff, #14161b);
+  --card-2: light-dark(#f6f7f9, #1a1d23);
+  --card-3: light-dark(#eaecef, #22262e);
+  --line: light-dark(rgba(14, 17, 22, 0.08), rgba(255, 255, 255, 0.07));
+  --line-2: light-dark(rgba(14, 17, 22, 0.15), rgba(255, 255, 255, 0.13));
+  --hover: light-dark(rgba(14, 17, 22, 0.03), rgba(255, 255, 255, 0.035));
+
+  --fg: light-dark(#0e1116, #edeff2);
+  --fg-2: light-dark(#4a5160, #a6acb7);
+  --fg-3: light-dark(#5f6674, #7f8592);
+
+  --accent: light-dark(#0f766e, #2dd4bf);
+  --accent-2: light-dark(#0d9488, #5eead4);
+  --accent-ink: light-dark(#ffffff, #03201c);
+  --accent-soft: light-dark(rgba(15, 118, 110, 0.09), rgba(45, 212, 191, 0.12));
+  --accent-line: light-dark(rgba(15, 118, 110, 0.35), rgba(45, 212, 191, 0.38));
+  --focus: light-dark(#0f766e, #5eead4);
+
+  /* Status: one colour per delivery or endpoint state, and a soft background for its badge. */
+  --ok: light-dark(#047857, #34d399);
+  --ok-soft: light-dark(rgba(4, 120, 87, 0.09), rgba(52, 211, 153, 0.12));
+  --fail: light-dark(#a15c07, #fbbf24);
+  --fail-soft: light-dark(rgba(217, 119, 6, 0.11), rgba(251, 191, 36, 0.12));
+  --dead: light-dark(#b91c1c, #f87171);
+  --dead-soft: light-dark(rgba(220, 38, 38, 0.09), rgba(248, 113, 113, 0.13));
+  --pend: light-dark(#1d4ed8, #7db4ff);
+  --pend-soft: light-dark(rgba(37, 99, 235, 0.09), rgba(96, 165, 250, 0.13));
+  --pause: light-dark(#6d28d9, #c4b5fd);
+  --pause-soft: light-dark(rgba(124, 58, 237, 0.09), rgba(167, 139, 250, 0.14));
+  --dis: light-dark(#c2410c, #fb923c);
+  --dis-soft: light-dark(rgba(234, 88, 12, 0.1), rgba(251, 146, 60, 0.13));
+  --cancel: light-dark(#4b5563, #a1a7b3);
+  --cancel-soft: light-dark(rgba(75, 85, 99, 0.09), rgba(161, 167, 179, 0.12));
+
+  /* Shadows can't go in light-dark(), only their colours can. */
+  --shadow:
+    0 1px 2px light-dark(rgba(14, 17, 22, 0.05), rgba(0, 0, 0, 0.3)),
+    0 10px 30px -12px light-dark(rgba(14, 17, 22, 0.18), rgba(0, 0, 0, 0.6));
+
+  --shiki-foreground: var(--fg);
+  --shiki-background: transparent;
+  --shiki-token-keyword: light-dark(#0369a1, #7dd3fc);
+  --shiki-token-string: light-dark(#047857, #86efac);
+  --shiki-token-string-expression: light-dark(#047857, #86efac);
+  --shiki-token-constant: light-dark(#a15c07, #fcd34d);
+  --shiki-token-function: light-dark(#a21caf, #f0abfc);
+  --shiki-token-parameter: var(--fg-2);
+  --shiki-token-comment: var(--fg-3);
+  --shiki-token-punctuation: var(--fg-3);
+  --shiki-token-link: var(--accent);
+}
+
+/* The manual switch: data-theme on <html> overrides the computer's setting. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Tailwind class names for the colours above: bg-card, text-fg-2, border-line, text-dead... */
+@theme inline {
+  --color-page: var(--page);
+  --color-panel: var(--panel);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-card-3: var(--card-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-hover: var(--hover);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-fail: var(--fail);
+  --color-fail-soft: var(--fail-soft);
+  --color-dead: var(--dead);
+  --color-dead-soft: var(--dead-soft);
+  --color-pend: var(--pend);
+  --color-pend-soft: var(--pend-soft);
+  --color-pause: var(--pause);
+  --color-pause-soft: var(--pause-soft);
+  --color-dis: var(--dis);
+  --color-dis-soft: var(--dis-soft);
+  --color-cancel: var(--cancel);
+  --color-cancel-soft: var(--cancel-soft);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --radius-card: 20px;
+  --radius-inset: 14px;
+
+  --shadow-card: var(--shadow);
+
+  /* animate-skeleton: the loading shimmer, a gradient sliding from right to left. */
+  --animate-skeleton: skeleton 1.4s ease-in-out infinite;
+  @keyframes skeleton {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+
+@layer base {
+  body {
+    @apply min-h-screen bg-page font-sans text-sm text-fg antialiased;
+    background-image: radial-gradient(900px 500px at 75% -8%, var(--glow), transparent 70%);
+  }
+
+  svg.lucide {
+    stroke-width: 1.75;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
