@@ -7,6 +7,7 @@
     "smoke": "node --env-file-if-exists=../.env smoke.ts",
     "invariant": "node --env-file-if-exists=../.env invariant.ts",
     "bench:matching": "node --env-file-if-exists=../.env bench-matching.ts",
+    "seed:workspace": "node --env-file-if-exists=../.env seed-workspace.ts",
     "bench:dispatch": "node --env-file-if-exists=../.env bench-dispatch.ts",
     "bench:fairness": "node --env-file-if-exists=../.env bench-fairness.ts",
     "bench:backlog": "node --env-file-if-exists=../.env bench-backlog.ts",

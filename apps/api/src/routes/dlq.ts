@@ -3,6 +3,7 @@ import type { Fragment, Sql } from "postgres";
 import { decodeCursor, encodeCursor } from "../cursor";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
+import { joinLastAttempt } from "../last-attempt";
 import { createRouter } from "../router";
 
 const MAX_PAGE = 100;
@@ -169,20 +170,7 @@ dlq.openapi(listDead, async (c) => {
             last.response_status as last_status, last.error_kind as last_error_kind
       from deliveries d
       join events ev on ev.id = d.event_id and ev.created_at = d.event_created_at
-      left join lateral (
-        select t.response_status, t.error_kind
-        from (
-          select a.attempt_number, a.response_status, a.error_kind
-          from delivery_attempts a
-          where a.delivery_id = d.id and a.started_at >= d.created_at and not a.stale
-          union all
-          select x.attempt_number, x.response_status, x.error_kind
-          from dead_delivery_attempts x
-          where x.delivery_id = d.id and not x.stale
-        ) t
-        order by t.attempt_number desc
-        limit 1
-      ) last on true
+      ${joinLastAttempt(sql)}
       where d.tenant_id = ${c.get("tenantId")}
           and d.state = 'dead'
           and d.resolution is null

@@ -16,7 +16,11 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AccountMenu } from "@/components/AccountMenu";
+import { TenantSwitcher } from "@/components/TenantSwitcher";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
+import type { Me } from "@/lib/api";
 
 const groups = [
   {
@@ -43,7 +47,7 @@ function isCurrent(href: string, pathname: string): boolean {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar() {
+export function Sidebar({ me }: { me: Me | null }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -78,6 +82,7 @@ export function Sidebar() {
         id="main-menu"
         className={classNames("flex-col gap-4 md:flex", open ? "flex" : "hidden")}
       >
+        {me ? <TenantSwitcher me={me} /> : <Skeleton className="h-13 w-full rounded-inset" />}
         {groups.map((group) => (
           <div key={group.title}>
             <p className="mb-1.5 px-2 text-[11.5px] font-medium tracking-wider text-fg-3 uppercase">
@@ -107,6 +112,7 @@ export function Sidebar() {
             </ul>
           </div>
         ))}
+        {me ? <AccountMenu me={me} /> : <Skeleton className="h-13.5 w-full rounded-inset" />}
       </div>
     </nav>
   );

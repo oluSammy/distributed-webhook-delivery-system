@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { Fragment, Sql } from "postgres";
 import { decodeCursor, encodeCursor } from "../cursor";
 import { ApiError } from "../errors";
+import { joinLastAttempt } from "../last-attempt";
 import { createRouter } from "../router";
 
 const MAX_PAGE = 100;
@@ -9,8 +10,13 @@ const MAX_PAGE = 100;
 const Delivery = z.object({
   id: z.string(),
   event_id: z.string(),
+  event_type: z.string().nullable(), // null once the event itself is past its retention
   endpoint_id: z.string(),
+  endpoint_description: z.string().nullable(), // "Billing service"; null if the endpoint is gone
+  endpoint_url: z.string().nullable(),
   state: z.string(),
+  last_status: z.number().nullable(),
+  last_error_kind: z.string().nullable(),
   attempt_count: z.number(),
   throttled_count: z.number(),
   failure_reason: z.string().nullable(),
@@ -39,8 +45,8 @@ const DeliveryWithAttempts = Delivery.extend({
   attempts: z.array(Attempt),
 });
 
-// Every search names an event or an endpoint (or both), so it always has an index to use:
-// idx_deliveries_event or idx_deliveries_endpoint. The rest narrows it down.
+// With no filter it's every delivery of the tenant (idx_deliveries_tenant). An event or an endpoint
+// narrows it (idx_deliveries_event, idx_deliveries_endpoint); the rest narrows it further.
 const ListQuery = z.object({
   event_id: z.uuid().optional(),
   endpoint_id: z.uuid().optional(),
@@ -58,7 +64,7 @@ const listDeliveries = createRoute({
   responses: {
     200: {
       description:
-        "Deliveries of an event or to an endpoint, newest first. Pass next_cursor as cursor for the next page; it's null on the last one.",
+        "The tenant's deliveries, newest first, optionally of one event or to one endpoint. Pass next_cursor as cursor for the next page; it's null on the last one.",
       content: {
         "application/json": {
           schema: z.object({ deliveries: z.array(Delivery), next_cursor: z.string().nullable() }),
@@ -99,8 +105,13 @@ const cancelDelivery = createRoute({
 type DeliveryRow = {
   id: string;
   event_id: string;
+  event_type: string | null;
   endpoint_id: string;
+  endpoint_description: string | null;
+  endpoint_url: string | null;
   state: string;
+  last_status: number | null;
+  last_error_kind: string | null;
   attempt_count: number;
   throttled_count: number;
   failure_reason: string | null;
@@ -130,9 +141,6 @@ export const deliveries = createRouter();
 
 deliveries.openapi(listDeliveries, async (c) => {
   const query = c.req.valid("query");
-  if (query.event_id === undefined && query.endpoint_id === undefined) {
-    throw new ApiError(400, "invalid_request", "Give event_id or endpoint_id");
-  }
   const sql = c.get("sql");
   const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
 
@@ -228,13 +236,19 @@ deliveries.openapi(cancelDelivery, async (c) => {
 // ('infinity': its endpoint is disabled or paused) has no time it's due, so it shows as null.
 function selectDeliveries(sql: Sql, tenantId: string, condition: Fragment, limit: number) {
   return sql<DeliveryRow[]>`
-      select d.id, d.event_id, d.endpoint_id, d.state, d.attempt_count, d.throttled_count,
+      select d.id, d.event_id, e.type as event_type, d.endpoint_id,
+        ep.description as endpoint_description, ep.url as endpoint_url,
+        d.state, d.attempt_count, d.throttled_count,
         d.failure_reason, d.redelivered_from, d.resolution, d.resolved_at,
         nullif(q.next_attempt_at, 'infinity') as next_attempt_at,
         q.claim_token is not null as in_flight, d.created_at, d.finished_at,
-        d.created_at::text as position
+        d.created_at::text as position,
+        last.response_status as last_status, last.error_kind as last_error_kind
       from deliveries d
       left join delivery_queue q on q.delivery_id = d.id
+      left join events e on e.id = d.event_id and e.created_at = d.event_created_at
+      left join endpoints ep on ep.id = d.endpoint_id
+      ${joinLastAttempt(sql)}
       where d.tenant_id = ${tenantId}
       ${condition}
       order by d.created_at desc, d.id desc
@@ -246,8 +260,13 @@ function toResponse(row: DeliveryRow) {
   return {
     id: row.id,
     event_id: row.event_id,
+    event_type: row.event_type,
     endpoint_id: row.endpoint_id,
+    endpoint_description: row.endpoint_description,
+    endpoint_url: row.endpoint_url,
     state: row.state,
+    last_status: row.last_status,
+    last_error_kind: row.last_error_kind,
     attempt_count: row.attempt_count,
     throttled_count: row.throttled_count,
     failure_reason: row.failure_reason,
