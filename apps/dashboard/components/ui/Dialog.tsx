@@ -15,10 +15,12 @@ export const DialogClose = RadixDialog.Close;
 export function DialogContent({
   title,
   description,
+  locked = false,
   children,
 }: {
   title: string;
   description?: string;
+  locked?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -27,16 +29,20 @@ export function DialogContent({
       <RadixDialog.Content
         // Radix links the description itself. Without one, say so, or Radix warns in the console.
         {...(description ? {} : { "aria-describedby": undefined })}
-        className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-40px)] w-[calc(100vw-32px)] max-w-[520px] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-[22px] border border-line-2 bg-card p-6 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
+        onEscapeKeyDown={locked ? (event) => event.preventDefault() : undefined}
+        onInteractOutside={locked ? (event) => event.preventDefault() : undefined}
+        className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-40px)] w-[calc(100vw-32px)] max-w-130 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-[22px] border border-line-2 bg-card p-6 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
       >
         <div className="flex items-start justify-between gap-3">
           <RadixDialog.Title className="text-[17px] font-semibold">{title}</RadixDialog.Title>
-          <RadixDialog.Close
-            aria-label="Close"
-            className="-mt-1 -mr-1 inline-flex size-[30px] cursor-pointer items-center justify-center rounded-full text-fg-2 hover:bg-hover hover:text-fg"
-          >
-            <X aria-hidden className="size-4" />
-          </RadixDialog.Close>
+          {!locked && (
+            <RadixDialog.Close
+              aria-label="Close"
+              className="-mt-1 -mr-1 inline-flex size-[30px] cursor-pointer items-center justify-center rounded-full text-fg-2 hover:bg-hover hover:text-fg"
+            >
+              <X aria-hidden className="size-4" />
+            </RadixDialog.Close>
+          )}
         </div>
         {description && (
           <RadixDialog.Description className="text-fg-2">{description}</RadixDialog.Description>

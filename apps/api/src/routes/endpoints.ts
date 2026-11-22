@@ -43,6 +43,8 @@ const Endpoint = z.object({
   rate_limit_per_s: z.number(),
   concurrency_limit: z.number(),
   created_at: z.string(),
+  deliveries_24h: z.object({ succeeded: z.number(), dead: z.number(), pending: z.number() }),
+  last_delivery_at: z.string().nullable(),
 });
 
 const CreatedEndpoint = Endpoint.extend({
@@ -220,6 +222,10 @@ type EndpointRow = {
   rate_limit_per_s: number;
   concurrency_limit: number;
   created_at: Date;
+  succeeded_24h: number;
+  dead_24h: number;
+  pending_24h: number;
+  last_delivery_at: Date | null;
 };
 
 export const endpoints = createRouter();
@@ -511,18 +517,32 @@ async function findEndpoint(sql: Sql, tenantId: string, id: string): Promise<End
 function selectEndpoints(sql: Sql, tenantId: string, endpointId?: string) {
   return sql<EndpointRow[]>`
       select e.id, e.url, e.description, e.state, e.rate_limit_per_s, e.concurrency_limit,
-             e.created_at,
-             coalesce(
-               jsonb_agg(s.event_type_pattern order by s.event_type_pattern)
-                 filter (where s.event_type_pattern is not null),
-               '[]'
-             ) as subscriptions
+             e.created_at, subs.subscriptions, recent.succeeded_24h, recent.dead_24h,
+             recent.pending_24h, newest.last_delivery_at
       from endpoints e
-      left join endpoint_subscriptions s on s.endpoint_id = e.id
+      cross join lateral (
+        select coalesce(jsonb_agg(s.event_type_pattern order by s.event_type_pattern), '[]')
+                 as subscriptions
+        from endpoint_subscriptions s
+        where s.endpoint_id = e.id
+      ) subs
+      cross join lateral (
+        select count(*) filter (where d.state = 'succeeded')::int as succeeded_24h,
+               count(*) filter (where d.state = 'dead')::int as dead_24h,
+               count(*) filter (where d.state = 'pending')::int as pending_24h
+        from deliveries d
+        where d.endpoint_id = e.id and d.created_at >= now() - interval '24 hours'
+      ) recent
+      left join lateral (
+        select d.created_at as last_delivery_at
+        from deliveries d
+        where d.endpoint_id = e.id
+        order by d.created_at desc
+        limit 1
+      ) newest on true
       where e.tenant_id = ${tenantId}
         and e.state <> 'deleted'
         ${endpointId === undefined ? sql`` : sql`and e.id = ${endpointId}`}
-      group by e.id
       order by e.created_at
     `;
 }
@@ -537,5 +557,7 @@ function toResponse(row: EndpointRow) {
     rate_limit_per_s: row.rate_limit_per_s,
     concurrency_limit: row.concurrency_limit,
     created_at: row.created_at.toISOString(),
+    deliveries_24h: { succeeded: row.succeeded_24h, dead: row.dead_24h, pending: row.pending_24h },
+    last_delivery_at: row.last_delivery_at?.toISOString() ?? null,
   };
 }
