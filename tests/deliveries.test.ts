@@ -1,3 +1,4 @@
+import { firstRow } from "@wds/core";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { api } from "./api.ts";
 import { connect, makeApiKey, makeDelivery, makeEndpoint, makeTenant, reset } from "./db.ts";
@@ -107,5 +108,55 @@ describe("GET /api/deliveries", () => {
 
     const { deliveries } = await list(await makeApiKey(sql, tenant), "?state=dead");
     expect(deliveries.map((d) => d.id)).toEqual([dead]);
+  });
+});
+
+describe("GET /api/deliveries/{id}", () => {
+  type Detail = {
+    request_body: string | null;
+    attempts: { attempt_number: number; signed_timestamp: number }[];
+    other_deliveries: { id: string; endpoint_id: string }[];
+  };
+
+  it("shows the exact body it sent, and each attempt's signed timestamp", async () => {
+    const tenant = await makeTenant(sql);
+    const delivery = await makeDelivery(sql, tenant, await makeEndpoint(sql, tenant));
+    // When the event was received, as the API reads it (a Date, so to the millisecond).
+    const { received } = firstRow(
+      await sql<{ received: Date }[]>`
+          select e.created_at as received
+          from deliveries d join events e on e.id = d.event_id
+          where d.id = ${delivery}
+        `,
+    );
+    await sql`
+        insert into delivery_attempts (delivery_id, attempt_number, signed_timestamp, outcome, started_at)
+        values (${delivery}, 1, 1794664851, 'failure', now())
+      `;
+
+    const response = await api(`/api/deliveries/${delivery}`, await makeApiKey(sql, tenant));
+    const detail = (await response.json()) as Detail;
+    const timestamp = received.toISOString();
+    expect(detail.request_body).toBe(`{"type":"test.event","timestamp":"${timestamp}","data":{}}`);
+    expect(detail.attempts).toMatchObject([{ attempt_number: 1, signed_timestamp: 1794664851 }]);
+  });
+
+  it("lists the same event's deliveries to its other endpoints", async () => {
+    const tenant = await makeTenant(sql);
+    const billing = await makeEndpoint(sql, tenant);
+    const crm = await makeEndpoint(sql, tenant);
+    const delivery = await makeDelivery(sql, tenant, billing);
+    await makeDelivery(sql, tenant, crm); // another event: not listed
+    const sibling = firstRow(
+      await sql<{ id: string }[]>`
+          insert into deliveries (tenant_id, event_id, event_created_at, endpoint_id)
+          select tenant_id, event_id, event_created_at, ${crm} from deliveries where id = ${delivery}
+          returning id
+        `,
+    ).id;
+
+    const response = await api(`/api/deliveries/${delivery}`, await makeApiKey(sql, tenant));
+    const detail = (await response.json()) as Detail;
+    expect(detail.other_deliveries.map((d) => [d.id, d.endpoint_id])).toEqual([[sibling, crm]]);
   });
 });

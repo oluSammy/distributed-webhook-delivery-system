@@ -33,6 +33,16 @@ export async function signWebhook(
   return signatures.join(" ");
 }
 
+// The body of every webhook: {"type":…,"timestamp":…,"data":…}, where timestamp is when the event
+// was received. Built as text, so the payload goes in exactly as stored (payload::text), without
+// being parsed and written out again. The Delivery Worker sends it, and the API shows it, so both
+// use this one function and show the same bytes.
+export function webhookBody(event: { type: string; createdAt: Date; payload: string }): string {
+  const type = JSON.stringify(event.type);
+  const timestamp = JSON.stringify(event.createdAt.toISOString());
+  return `{"type":${type},"timestamp":${timestamp},"data":${event.payload}}`;
+}
+
 function signedContent(message: WebhookMessage) {
   return encoder.encode(`${message.id}.${message.timestamp}.${message.body}`);
 }

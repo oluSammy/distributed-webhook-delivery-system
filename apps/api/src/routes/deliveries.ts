@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { webhookBody } from "@wds/core";
 import type { Fragment, Sql } from "postgres";
 import { decodeCursor, encodeCursor } from "../cursor";
 import { ApiError } from "../errors";
@@ -31,6 +32,7 @@ const Delivery = z.object({
 
 const Attempt = z.object({
   attempt_number: z.number(),
+  signed_timestamp: z.number(),
   outcome: z.string(),
   response_status: z.number().nullable(),
   response_body: z.string().nullable(),
@@ -43,6 +45,8 @@ const Attempt = z.object({
 
 const DeliveryWithAttempts = Delivery.extend({
   attempts: z.array(Attempt),
+  request_body: z.string().nullable(),
+  other_deliveries: z.array(Delivery),
 });
 
 // With no filter it's every delivery of the tenant (idx_deliveries_tenant). An event or an endpoint
@@ -80,7 +84,8 @@ const getDelivery = createRoute({
   request: { params: z.object({ id: z.uuid() }) },
   responses: {
     200: {
-      description: "One delivery with every attempt, oldest first",
+      description:
+        "One delivery with every attempt (oldest first), the body it sent, and the same event's other deliveries",
       content: { "application/json": { schema: DeliveryWithAttempts } },
     },
   },
@@ -105,6 +110,7 @@ const cancelDelivery = createRoute({
 type DeliveryRow = {
   id: string;
   event_id: string;
+  event_created_at: string;
   event_type: string | null;
   endpoint_id: string;
   endpoint_description: string | null;
@@ -127,6 +133,7 @@ type DeliveryRow = {
 
 type AttemptRow = {
   attempt_number: number;
+  signed_timestamp: string;
   outcome: string;
   response_status: number | null;
   response_body_truncated: string | null;
@@ -177,18 +184,39 @@ deliveries.openapi(getDelivery, async (c) => {
   // attempts move to dead_delivery_attempts when their partition is dropped, so read both.
   // started_at >= created_at changes nothing but lets Postgres skip older partitions.
   const attempts = await sql<AttemptRow[]>`
-      select attempt_number, outcome, response_status, response_body_truncated, error_kind,
-              latency_ms, stale, started_at, finished_at
+      select attempt_number, signed_timestamp, outcome, response_status, response_body_truncated,
+        error_kind, latency_ms, stale, started_at, finished_at
       from delivery_attempts
       where delivery_id = ${id} and started_at >= ${row.created_at}
       union all
-      select attempt_number, outcome, response_status, response_body_truncated, error_kind,
-              latency_ms, stale, started_at, finished_at
+      select attempt_number, signed_timestamp, outcome, response_status, response_body_truncated,
+        error_kind, latency_ms, stale, started_at, finished_at
       from dead_delivery_attempts
       where delivery_id = ${id}
       order by attempt_number, started_at
       `;
-  return c.json({ ...toResponse(row), attempts: attempts.map(toAttemptResponse) }, 200);
+  const [event] = await sql<{ type: string; created_at: Date; payload: string }[]>`
+      select type, created_at, payload::text as payload
+      from events
+      where id = ${row.event_id} and created_at = ${row.event_created_at}::text::timestamptz
+    `;
+  const others = await selectDeliveries(
+    sql,
+    c.get("tenantId"),
+    sql`and d.event_id = ${row.event_id} and d.id <> ${id}`,
+    50,
+  );
+  return c.json(
+    {
+      ...toResponse(row),
+      attempts: attempts.map(toAttemptResponse),
+      request_body: event
+        ? webhookBody({ type: event.type, createdAt: event.created_at, payload: event.payload })
+        : null,
+      other_deliveries: others.map(toResponse),
+    },
+    200,
+  );
 });
 
 // Takes the delivery out of the queue and marks it cancelled, in one statement. If it's being
@@ -236,7 +264,8 @@ deliveries.openapi(cancelDelivery, async (c) => {
 // ('infinity': its endpoint is disabled or paused) has no time it's due, so it shows as null.
 function selectDeliveries(sql: Sql, tenantId: string, condition: Fragment, limit: number) {
   return sql<DeliveryRow[]>`
-      select d.id, d.event_id, e.type as event_type, d.endpoint_id,
+      select d.id, d.event_id, d.event_created_at::text as event_created_at, e.type as event_type,
+        d.endpoint_id,
         ep.description as endpoint_description, ep.url as endpoint_url,
         d.state, d.attempt_count, d.throttled_count,
         d.failure_reason, d.redelivered_from, d.resolution, d.resolved_at,
@@ -283,6 +312,7 @@ function toResponse(row: DeliveryRow) {
 function toAttemptResponse(row: AttemptRow) {
   return {
     attempt_number: row.attempt_number,
+    signed_timestamp: Number(row.signed_timestamp),
     outcome: row.outcome,
     response_status: row.response_status,
     response_body: row.response_body_truncated,

@@ -8,8 +8,8 @@ import { apiGet } from "@/lib/api";
 import {
   type DeliveryPage,
   deliveriesPath,
-  STATE_FILTERS,
   type StateFilter as Filter,
+  STATE_FILTERS,
 } from "@/lib/deliveries";
 import { DeliveryList } from "./DeliveryList";
 import { StateFilter } from "./StateFilter";
