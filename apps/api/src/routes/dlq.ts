@@ -12,6 +12,8 @@ const MAX_BULK = 1000;
 const DeadDelivery = z.object({
   id: z.string(),
   event_id: z.string(),
+  endpoint_description: z.string().nullable(),
+  endpoint_url: z.string().nullable(),
   event_type: z.string(),
   endpoint_id: z.string(),
   failure_reason: z.string(),
@@ -67,6 +69,29 @@ const listDead = createRoute({
           schema: z.object({
             deliveries: z.array(DeadDelivery),
             next_cursor: z.string().nullable(),
+          }),
+        },
+      },
+    },
+  },
+});
+
+// The counts behind the DLQ page's reason chips and its "select all matching": the filters
+// except reason, so every chip keeps its count while one is chosen.
+const CountsQuery = DeadFilters.omit({ reason: true });
+
+const countDead = createRoute({
+  method: "get",
+  path: "/counts",
+  request: { query: CountsQuery },
+  responses: {
+    200: {
+      description: "How many dead deliveries in the DLQ match the filters, in all and by reason",
+      content: {
+        "application/json": {
+          schema: z.object({
+            total: z.number(),
+            reasons: z.array(z.object({ reason: z.string(), count: z.number() })),
           }),
         },
       },
@@ -144,6 +169,8 @@ type DeadDeliveryRow = {
   event_id: string;
   event_type: string;
   endpoint_id: string;
+  endpoint_description: string | null;
+  endpoint_url: string | null;
   failure_reason: string;
   attempt_count: number;
   throttled_count: number;
@@ -164,18 +191,20 @@ dlq.openapi(listDead, async (c) => {
   // One more than the page, to tell whether another page follows. The cursor's position goes in
   // as text: sent as a timestamptz, postgres.js would turn it into a Date and drop the microseconds.
   const rows = await sql<DeadDeliveryRow[]>`
-      select d.id, d.event_id, ev.type as event_type, d.endpoint_id, d.failure_reason,
-            d.attempt_count, d.throttled_count, d.created_at, d.finished_at,
-            d.created_at::text as position,
-            last.response_status as last_status, last.error_kind as last_error_kind
+      select d.id, d.event_id, ev.type as event_type, d.endpoint_id,
+        ep.description as endpoint_description, ep.url as endpoint_url, d.failure_reason,
+        d.attempt_count, d.throttled_count, d.created_at, d.finished_at,
+        d.created_at::text as position,
+        last.response_status as last_status, last.error_kind as last_error_kind
       from deliveries d
       join events ev on ev.id = d.event_id and ev.created_at = d.event_created_at
+      left join endpoints ep on ep.id = d.endpoint_id
       ${joinLastAttempt(sql)}
       where d.tenant_id = ${c.get("tenantId")}
-          and d.state = 'dead'
-          and d.resolution is null
-          ${deadFilters(sql, query)}
-          ${after === null ? sql`` : sql`and (d.created_at, d.id) < (${after.position}::text::timestamptz, ${after.id})`}
+        and d.state = 'dead'
+        and d.resolution is null
+        ${deadFilters(sql, query)}
+        ${after === null ? sql`` : sql`and (d.created_at, d.id) < (${after.position}::text::timestamptz, ${after.id})`}
       order by d.created_at desc, d.id desc
       limit ${query.limit + 1}
     `;
@@ -184,6 +213,26 @@ dlq.openapi(listDead, async (c) => {
   const last = page.at(-1);
   const nextCursor = rows.length > query.limit && last ? encodeCursor(last) : null;
   return c.json({ deliveries: page.map(toResponse), next_cursor: nextCursor }, 200);
+});
+
+// One count per reason, from the partial index on the DLQ (idx_deliveries_dead): the tenant's
+// unresolved dead deliveries, by creation time.
+dlq.openapi(countDead, async (c) => {
+  const query = c.req.valid("query");
+  const sql = c.get("sql");
+  const reasons = await sql<{ reason: string; count: number }[]>`
+      select d.failure_reason as reason, count(*)::int as count
+      from deliveries d
+      join events ev on ev.id = d.event_id and ev.created_at = d.event_created_at
+      where d.tenant_id = ${c.get("tenantId")}
+          and d.state = 'dead'
+          and d.resolution is null
+          ${deadFilters(sql, query)}
+      group by d.failure_reason
+      order by count desc, reason
+    `;
+  const total = reasons.reduce((sum, row) => sum + row.count, 0);
+  return c.json({ total, reasons }, 200);
 });
 
 dlq.openapi(redeliverOne, async (c) => {
@@ -246,6 +295,8 @@ function toResponse(row: DeadDeliveryRow) {
     event_id: row.event_id,
     event_type: row.event_type,
     endpoint_id: row.endpoint_id,
+    endpoint_description: row.endpoint_description,
+    endpoint_url: row.endpoint_url,
     failure_reason: row.failure_reason,
     attempt_count: row.attempt_count,
     throttled_count: row.throttled_count,
