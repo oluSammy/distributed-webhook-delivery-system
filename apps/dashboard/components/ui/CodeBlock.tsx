@@ -15,10 +15,12 @@ export function CodeBlock({
   code,
   language,
   copyLabel,
+  copyValue = code,
 }: {
   code: string;
   language?: Language;
   copyLabel: string;
+  copyValue?: string;
 }) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null);
 
@@ -43,7 +45,7 @@ export function CodeBlock({
         {tokens ? coloured(tokens) : code}
       </pre>
       <div className="absolute top-1.5 right-1.5">
-        <CopyButton value={code} label={copyLabel} />
+        <CopyButton value={copyValue} label={copyLabel} />
       </div>
     </div>
   );

@@ -43,17 +43,15 @@ const groups = [
   },
 ];
 
-function isCurrent(href: string, pathname: string): boolean {
+function isCurrent(href: string, pathname: string | null): boolean {
+  if (pathname === null) {
+    return false;
+  }
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function Sidebar({ me }: { me: Me | null }) {
-  const pathname = usePathname();
   const [open, setOpen] = useState(false);
-
-  // Close the folded menu once a link has taken you to another page.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the page changes
-  useEffect(() => setOpen(false), [pathname]);
 
   return (
     <nav
@@ -83,37 +81,55 @@ export function Sidebar({ me }: { me: Me | null }) {
         className={classNames("flex-col gap-4 md:flex", open ? "flex" : "hidden")}
       >
         {me ? <TenantSwitcher me={me} /> : <Skeleton className="h-13 w-full rounded-inset" />}
-        {groups.map((group) => (
-          <div key={group.title}>
-            <p className="mb-1.5 px-2 text-[11.5px] font-medium tracking-wider text-fg-3 uppercase">
-              {group.title}
-            </p>
-            <ul className="flex flex-col gap-0.5">
-              {group.links.map(({ href, label, icon: Icon }) => {
-                const current = isCurrent(href, pathname);
-                return (
-                  <li key={href}>
-                    <Link
-                      href={href}
-                      aria-current={current ? "page" : undefined}
-                      className={classNames(
-                        "flex h-[38px] items-center gap-2.5 rounded-xl px-2.5 text-[13.5px]",
-                        current
-                          ? "bg-[linear-gradient(90deg,var(--accent-soft),transparent)] text-fg shadow-[inset_0_0_0_1px_var(--accent-line)] [&>svg]:text-accent"
-                          : "text-fg-2 hover:bg-hover hover:text-fg",
-                      )}
-                    >
-                      <Icon aria-hidden className="size-4 shrink-0" />
-                      {label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+        {me ? <TrackedLinks onPageChange={() => setOpen(false)} /> : <Links pathname={null} />}
         {me ? <AccountMenu me={me} /> : <Skeleton className="h-13.5 w-full rounded-inset" />}
       </div>
     </nav>
+  );
+}
+
+function TrackedLinks({ onPageChange }: { onPageChange: () => void }) {
+  const pathname = usePathname();
+
+  // Close the folded menu once a link has taken you to another page.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the page changes
+  useEffect(() => onPageChange(), [pathname]);
+
+  return <Links pathname={pathname} />;
+}
+
+function Links({ pathname }: { pathname: string | null }) {
+  return (
+    <>
+      {groups.map((group) => (
+        <div key={group.title}>
+          <p className="mb-1.5 px-2 text-[11.5px] font-medium tracking-wider text-fg-3 uppercase">
+            {group.title}
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {group.links.map(({ href, label, icon: Icon }) => {
+              const current = isCurrent(href, pathname);
+              return (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    aria-current={current ? "page" : undefined}
+                    className={classNames(
+                      "flex h-[38px] items-center gap-2.5 rounded-xl px-2.5 text-[13.5px]",
+                      current
+                        ? "bg-[linear-gradient(90deg,var(--accent-soft),transparent)] text-fg shadow-[inset_0_0_0_1px_var(--accent-line)] [&>svg]:text-accent"
+                        : "text-fg-2 hover:bg-hover hover:text-fg",
+                    )}
+                  >
+                    <Icon aria-hidden className="size-4 shrink-0" />
+                    {label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </>
   );
 }

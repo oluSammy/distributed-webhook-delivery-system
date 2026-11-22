@@ -37,3 +37,22 @@ export function deliveriesPath(state: StateFilter, cursor?: string): string {
   }
   return `/api/deliveries?${query}`;
 }
+
+export type Attempt = {
+  attempt_number: number;
+  signed_timestamp: number; // the webhook-timestamp header it was sent with
+  outcome: "success" | "failure" | "throttled" | "non_retryable";
+  response_status: number | null;
+  response_body: string | null; // the start of the response, failed attempts only
+  error_kind: string | null; // why no response came back: timeout, conn_refused…
+  latency_ms: number | null;
+  stale: boolean; // came back after a newer attempt had taken over, so it changed nothing
+  started_at: string;
+  finished_at: string | null;
+};
+
+export type DeliveryDetail = Delivery & {
+  attempts: Attempt[];
+  request_body: string | null; // the exact body every attempt sent; null past the event's retention
+  other_deliveries: Delivery[]; // the same event's deliveries to its other endpoints
+};
