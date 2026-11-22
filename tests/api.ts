@@ -1,6 +1,10 @@
 import worker from "../apps/api/src/index.ts";
 import { TEST_DATABASE_URL } from "./db.ts";
 
+// A master key for the tests only. Routes that
+// encrypt signing secrets (rotation) need one.
+export const TEST_MASTER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
 // The API Worker, called in-process with stand-in bindings: Hyperdrive is the test database, and
 // waking the dispatcher does nothing. Work the Worker leaves for after the response (waitUntil) is
 // collected, and finished before api() returns.
@@ -11,6 +15,7 @@ const env = {
   GITHUB_CLIENT_ID: "test-client-id",
   GITHUB_CLIENT_SECRET: "test-client-secret",
   DASHBOARD_URL: "http://dashboard.test",
+  MASTER_KEY_V1: TEST_MASTER_KEY,
 } as unknown as Env;
 
 export async function api(path: string, key: string, init: RequestInit = {}): Promise<Response> {

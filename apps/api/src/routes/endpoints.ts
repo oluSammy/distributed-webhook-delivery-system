@@ -51,6 +51,34 @@ const CreatedEndpoint = Endpoint.extend({
   signing_secret: z.string(),
 });
 
+// Edit: any of the fields create takes, at least one. Subscriptions replace the whole set.
+const UpdateEndpointBody = z
+  .object({
+    url: EndpointUrl,
+    description: z.string().max(500),
+    subscriptions: z.array(SubscriptionPattern).min(1).max(MAX_SUBSCRIPTIONS),
+    rate_limit_per_s: z.number().int().min(1).max(10_000),
+    concurrency_limit: z.number().int().min(1).max(100),
+  })
+  .partial()
+  .refine((body) => Object.keys(body).length > 0, { message: "Give at least one field to change" });
+
+// How long a rotated-out secret keeps signing, so receivers can switch over without failing.
+const SECRET_GRACE = "24 hours";
+
+const RotatedSecret = z.object({
+  signing_secret: z.string(), // the new one, shown only in this response
+  previous_expires_at: z.string().nullable(), // when the old one stops signing
+});
+
+// What the test event carries, so a receiver can tell it apart from real ones.
+const TEST_EVENT_TYPE = "webhook.test";
+
+const TestSent = z.object({
+  delivery_id: z.string(), // watch it with GET /api/deliveries/{id}
+  event_id: z.string(),
+});
+
 const EndpointParams = z.object({
   id: z.uuid(),
 });
@@ -65,6 +93,46 @@ const createEndpoint = createRoute({
     201: {
       description: "Endpoint created. The signing secret is only shown in this response.",
       content: { "application/json": { schema: CreatedEndpoint } },
+    },
+  },
+});
+
+const updateEndpoint = createRoute({
+  method: "patch",
+  path: "/{id}",
+  request: {
+    params: z.object({ id: z.uuid() }),
+    body: { content: { "application/json": { schema: UpdateEndpointBody } }, required: true },
+  },
+  responses: {
+    200: {
+      description:
+        "Endpoint changed. A new URL is checked like a new endpoint's; new subscriptions apply to events from now on.",
+      content: { "application/json": { schema: Endpoint } },
+    },
+  },
+});
+
+const rotateSecret = createRoute({
+  method: "post",
+  path: "/{id}/rotate-secret",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    201: {
+      description: `A new signing secret, shown only in this response. The old one keeps signing for ${SECRET_GRACE}, so every webhook carries both signatures until then.`,
+      content: { "application/json": { schema: RotatedSecret } },
+    },
+  },
+});
+
+const testEndpoint = createRoute({
+  method: "post",
+  path: "/{id}/test",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    202: {
+      description: `A sample ${TEST_EVENT_TYPE} event, delivered to this endpoint only, like any other delivery.`,
+      content: { "application/json": { schema: TestSent } },
     },
   },
 });
@@ -236,23 +304,7 @@ endpoints.openapi(createEndpoint, async (c) => {
 
   const tenantId = c.get("tenantId");
 
-  let problem: string | null;
-  try {
-    problem = await checkEndpointTarget(body.url, {
-      allowLocal: c.env.ALLOW_LOCAL_ENDPOINTS === "true",
-    });
-  } catch (err) {
-    console.error("endpoint host lookup failed", err);
-    throw new ApiError(
-      503,
-      "dns_lookup_failed",
-      "Could not look up the endpoint host name, try again",
-    );
-  }
-  if (problem !== null) {
-    throw new ApiError(422, "endpoint_url_not_allowed", `Endpoint URL ${problem}`);
-  }
-
+  await checkUrl(c.env, body.url);
   const master = await importMasterKey(c.env.MASTER_KEY_V1, 1);
   const patterns = [...new Set(body.subscriptions)];
 
@@ -514,6 +566,26 @@ async function findEndpoint(sql: Sql, tenantId: string, id: string): Promise<End
   return row;
 }
 
+// Refuses a URL the system mustn't send to: not http(s), or a private or local address (unless
+// ALLOW_LOCAL_ENDPOINTS, for local development). Used when an endpoint is created or its URL
+// changes.
+async function checkUrl(env: Env, url: string): Promise<void> {
+  let problem: string | null;
+  try {
+    problem = await checkEndpointTarget(url, { allowLocal: env.ALLOW_LOCAL_ENDPOINTS === "true" });
+  } catch (err) {
+    console.error("endpoint host lookup failed", err);
+    throw new ApiError(
+      503,
+      "dns_lookup_failed",
+      "Could not look up the endpoint host name, try again",
+    );
+  }
+  if (problem !== null) {
+    throw new ApiError(422, "endpoint_url_not_allowed", `Endpoint URL ${problem}`);
+  }
+}
+
 function selectEndpoints(sql: Sql, tenantId: string, endpointId?: string) {
   return sql<EndpointRow[]>`
       select e.id, e.url, e.description, e.state, e.rate_limit_per_s, e.concurrency_limit,
@@ -561,3 +633,125 @@ function toResponse(row: EndpointRow) {
     last_delivery_at: row.last_delivery_at?.toISOString() ?? null,
   };
 }
+
+// Changes only the fields given, in one transaction. The Delivery Worker reads the URL and limits
+// afresh with every delivery it claims, so changes apply from the next one.
+endpoints.openapi(updateEndpoint, async (c) => {
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+  if (body.url !== undefined) {
+    await checkUrl(c.env, body.url);
+  }
+  const { subscriptions, ...fields } = body;
+
+  await sql.begin(async (tx) => {
+    // Locks the row, so two edits at once happen one after the other.
+    const [found] = await tx`
+        select 1 from endpoints
+        where id = ${id} and tenant_id = ${tenantId} and state <> 'deleted'
+        for update
+      `;
+    if (!found) {
+      throw new ApiError(404, "not_found", "Endpoint not found");
+    }
+    if (Object.keys(fields).length > 0) {
+      await tx`update endpoints set ${tx(fields)} where id = ${id}`;
+    }
+    if (subscriptions !== undefined) {
+      await tx`delete from endpoint_subscriptions where endpoint_id = ${id}`;
+      await tx`
+          insert into endpoint_subscriptions (endpoint_id, event_type_pattern)
+          select ${id}, pattern
+          from jsonb_array_elements_text(${tx.json([...new Set(subscriptions)])}) as pattern
+        `;
+    }
+  });
+  return c.json(toResponse(await findEndpoint(sql, tenantId, id)), 200);
+});
+
+// The current secret gets an expiry, a new one is added, and both sign every webhook until the
+// expiry: the Delivery Worker signs with each unexpired secret. A secret that already has an
+// expiry (from an earlier rotation) keeps it.
+endpoints.openapi(rotateSecret, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+  const master = await importMasterKey(c.env.MASTER_KEY_V1, 1);
+  const secret = generateSigningSecret();
+  const encrypted = await encryptSecret(secret, id, master);
+
+  const previousExpiresAt = await sql.begin(async (tx) => {
+    // Locks the endpoint, so two rotations at once happen one after the other.
+    const [found] = await tx`
+        select 1 from endpoints
+        where id = ${id} and tenant_id = ${tenantId} and state <> 'deleted'
+        for update
+      `;
+    if (!found) {
+      throw new ApiError(404, "not_found", "Endpoint not found");
+    }
+    const [previous] = await tx<{ expires_at: Date }[]>`
+        update endpoint_secrets
+        set expires_at = now() + ${SECRET_GRACE}::interval
+        where endpoint_id = ${id} and expires_at is null
+        returning expires_at
+      `;
+    await tx`
+        insert into endpoint_secrets
+          (endpoint_id, secret_ciphertext, secret_iv, dek_ciphertext, dek_iv, kek_version)
+        values
+          (${id}, ${encrypted.secretCiphertext}, ${encrypted.secretIv},
+           ${encrypted.dekCiphertext}, ${encrypted.dekIv}, ${encrypted.kekVersion})
+      `;
+    return previous?.expires_at ?? null;
+  });
+  return c.json(
+    { signing_secret: secret, previous_expires_at: previousExpiresAt?.toISOString() ?? null },
+    201,
+  );
+});
+
+// A sample event and its one delivery, queued like any other, so the test goes through the real
+// path: signing, limits, retries, and the response recorded. The event is created with its
+// deliveries already made (deliveries_created_at), so the Creator gives it no others.
+endpoints.openapi(testEndpoint, async (c) => {
+  const { id } = c.req.valid("param");
+  const sql = c.get("sql");
+  const tenantId = c.get("tenantId");
+  const endpoint = await findEndpoint(sql, tenantId, id);
+  if (endpoint.state !== "active") {
+    throw new ApiError(
+      409,
+      "endpoint_not_active",
+      `This endpoint is ${endpoint.state}, so a test would wait unsent. Resume it first.`,
+    );
+  }
+  const payload = { message: "A test webhook, sent from the dashboard.", endpoint_id: id };
+  const sent = firstRow(
+    await sql<{ delivery_id: string; event_id: string }[]>`
+        with event as (
+          insert into events (tenant_id, type, payload, deliveries_created_at)
+          values (${tenantId}, ${TEST_EVENT_TYPE}, ${sql.json(payload)}, now())
+          returning id, created_at
+        ),
+        delivery as (
+          insert into deliveries (tenant_id, event_id, event_created_at, endpoint_id)
+          select ${tenantId}::uuid, id, created_at, ${id}::uuid from event
+          returning id, created_at, event_id
+        ),
+        queued as (
+          insert into delivery_queue
+            (delivery_id, delivery_created_at, tenant_id, endpoint_id, next_attempt_at)
+          select id, created_at, ${tenantId}::uuid, ${id}::uuid, now() from delivery
+        ),
+        work as (
+          insert into tenants_with_work (tenant_id) values (${tenantId}) on conflict do nothing
+        )
+        select id as delivery_id, event_id from delivery
+      `,
+  );
+  c.executionCtx.waitUntil(wakeDispatcher(c.env));
+  return c.json(sent, 202);
+});
