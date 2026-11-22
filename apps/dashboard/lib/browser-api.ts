@@ -1,6 +1,20 @@
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export class RequestError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly details: { path: string; message: string }[] = [],
+  ) {
+    super(message);
+  }
+}
+
+export async function apiRequest<T>(
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const response = await fetch(path, {
-    method: "POST",
+    method,
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -21,14 +35,6 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
-// A failed request to the API: its message (ready for a toast), its code, and, when the request
-// didn't pass validation, which field each problem is in ({ path: "url", message: "…" }).
-export class RequestError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly details: { path: string; message: string }[] = [],
-  ) {
-    super(message);
-  }
+export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return apiRequest<T>("POST", path, body);
 }
