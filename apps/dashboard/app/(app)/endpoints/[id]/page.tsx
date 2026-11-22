@@ -19,8 +19,10 @@ import { Tag } from "@/components/ui/Tag";
 import { apiGet } from "@/lib/api";
 import type { DeliveryPage } from "@/lib/deliveries";
 import { type Endpoint, endpointName, successRate } from "@/lib/endpoints";
-import { EndpointActions } from "./EndpointActions";
 import { EditEndpoint } from "./EditEndpoint";
+import { EndpointActions } from "./EndpointActions";
+import { HealthPanel } from "./HealthPanel";
+import { SecretsPanel } from "./SecretsPanel";
 
 export const metadata: Metadata = { title: "Endpoint · Webhooks" };
 
@@ -99,7 +101,9 @@ async function EndpointView({ params }: { params: Params }) {
       <Tabs defaultValue="overview">
         <TabList label="Endpoint sections">
           <Tab value="overview">Overview</Tab>
+          <Tab value="health">Health</Tab>
           <Tab value="settings">Settings</Tab>
+          <Tab value="secrets">Secrets</Tab>
         </TabList>
         <TabPanel value="overview" className="flex flex-col gap-5">
           <section
@@ -186,8 +190,14 @@ async function EndpointView({ params }: { params: Params }) {
             )}
           </Card>
         </TabPanel>
+        <TabPanel value="health">
+          <HealthPanel endpointId={endpoint.id} />
+        </TabPanel>
         <TabPanel value="settings">
           <EditEndpoint endpoint={endpoint} />
+        </TabPanel>
+        <TabPanel value="secrets">
+          <SecretsPanel endpointId={endpoint.id} />
         </TabPanel>
       </Tabs>
     </>

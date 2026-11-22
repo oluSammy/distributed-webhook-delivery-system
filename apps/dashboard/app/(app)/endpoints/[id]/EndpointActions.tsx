@@ -15,6 +15,7 @@ import { apiPost, apiRequest, RequestError } from "@/lib/browser-api";
 import type { DeliveryDetail } from "@/lib/deliveries";
 import { type Endpoint, endpointName } from "@/lib/endpoints";
 import { formatDuration } from "@/lib/format";
+import { ReplayDialog } from "./ReplayDialog";
 
 // The buttons at the top of an endpoint's page.
 export function EndpointActions({ endpoint }: { endpoint: Endpoint }) {
@@ -22,6 +23,7 @@ export function EndpointActions({ endpoint }: { endpoint: Endpoint }) {
     <div className="flex flex-wrap gap-2">
       <SendTest endpoint={endpoint} />
       <PauseOrResume endpoint={endpoint} />
+      <ReplayDialog endpoint={endpoint} />
       <DeleteEndpoint endpoint={endpoint} />
     </div>
   );

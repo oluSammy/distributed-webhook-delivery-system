@@ -27,3 +27,19 @@ export function successRate(endpoint: Endpoint): string | null {
 export function endpointName(endpoint: Pick<Endpoint, "description" | "url">): string {
   return endpoint.description || endpoint.url;
 }
+
+// GET /api/endpoints/{id}/health: its state, and what its limiter knows right now.
+export type EndpointHealth = {
+  health: "healthy" | "degraded" | "disabled" | "paused";
+  probe_at: string | null; // disabled: when the next probe may go
+  limiter: {
+    rate_limit_per_s: number;
+    current_rate_per_s: number; // lower than the limit while recovering from a throttle
+    concurrency_limit: number;
+    slots_in_use: number;
+    throttled_until: string | null;
+    breaker: "closed" | "open" | "half_open";
+    recent_attempts: number; // the breaker's window: sent attempts in the last 10 minutes
+    recent_failures: number;
+  } | null; // null when the limiter can't be reached
+};
