@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { firstRow, requestHash } from "@wds/core";
 import { bodyLimit } from "hono/body-limit";
 import type { Sql, TransactionSql } from "postgres";
+import { decodeCursor, encodeCursor } from "../cursor";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
@@ -9,6 +10,7 @@ import { createRouter } from "../router";
 const MAX_BODY_BYTES = 256 * 1024;
 const IDEMPOTENCY_WINDOW = "24 hours";
 const MAX_BATCH_SIZE = 500;
+const MAX_PAGE = 100;
 
 type EventPayload = z.infer<typeof CreateEventBody>["payload"];
 type EventInput = z.infer<typeof CreateEventBody>;
@@ -44,6 +46,45 @@ const CreateEventHeaders = z.object({
   "idempotency-key": z.string().min(1).max(255).optional(),
 });
 
+// The list leaves the payload out (it can be 256 KB): GET /api/events/{id} has it.
+const EventSummary = z.object({
+  id: z.string(),
+  type: z.string(),
+  created_at: z.string(),
+  deliveries_created_at: z.string().nullable(), // null while its deliveries are still being made
+  // Its deliveries, one per matching endpoint, counted by state.
+  deliveries: z.object({
+    total: z.number(),
+    succeeded: z.number(),
+    pending: z.number(),
+    dead: z.number(),
+    cancelled: z.number(),
+  }),
+});
+
+const ListQuery = z.object({
+  type: z.string().max(255).optional(), // only events of this type
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE).default(50),
+  cursor: z.string().max(200).optional(), // next_cursor from the previous page
+});
+
+const listEvents = createRoute({
+  method: "get",
+  path: "/",
+  request: { query: ListQuery },
+  responses: {
+    200: {
+      description:
+        "The tenant's events, newest first, each with its deliveries counted by state. Pass next_cursor as cursor for the next page; it's null on the last one.",
+      content: {
+        "application/json": {
+          schema: z.object({ events: z.array(EventSummary), next_cursor: z.string().nullable() }),
+        },
+      },
+    },
+  },
+});
+
 const createEvent = createRoute({
   method: "post",
   path: "/",
@@ -71,6 +112,19 @@ const getEvent = createRoute({
   },
 });
 
+type EventSummaryRow = {
+  id: string;
+  type: string;
+  created_at: Date;
+  deliveries_created_at: Date | null;
+  position: string; // created_at as text, which keeps the microseconds a Date would lose
+  total: number;
+  succeeded: number;
+  pending: number;
+  dead: number;
+  cancelled: number;
+};
+
 type EventRow = {
   id: string;
   type: string;
@@ -94,6 +148,58 @@ const createEventBatch = createRoute({
 });
 
 export const events = createRouter();
+
+// Newest first, read off idx_events_tenant (tenant_id, created_at, id) backwards; each event's
+// deliveries are counted with idx_deliveries_event. One more than the page is asked for, to tell
+// whether another page follows.
+events.openapi(listEvents, async (c) => {
+  const query = c.req.valid("query");
+  const sql = c.get("sql");
+  const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
+  const rows = await sql<EventSummaryRow[]>`
+      select e.id, e.type, e.created_at, e.deliveries_created_at,
+             e.created_at::text as position, counts.*
+      from events e
+      cross join lateral (
+        select count(*)::int as total,
+               count(*) filter (where d.state = 'succeeded')::int as succeeded,
+               count(*) filter (where d.state = 'pending')::int as pending,
+               count(*) filter (where d.state = 'dead')::int as dead,
+               count(*) filter (where d.state = 'cancelled')::int as cancelled
+        from deliveries d
+        -- A delivery is never made before its event: the second condition changes nothing but
+        -- lets Postgres skip the older days' partitions.
+        where d.event_id = e.id and d.created_at >= e.created_at
+      ) counts
+      where e.tenant_id = ${c.get("tenantId")}
+        ${query.type === undefined ? sql`` : sql`and e.type = ${query.type}`}
+        ${after === null ? sql`` : sql`and (e.created_at, e.id) < (${after.position}::text::timestamptz, ${after.id})`}
+      order by e.created_at desc, e.id desc
+      limit ${query.limit + 1}
+    `;
+  const page = rows.slice(0, query.limit);
+  const last = page.at(-1);
+  const nextCursor = rows.length > query.limit && last ? encodeCursor(last) : null;
+  return c.json(
+    {
+      events: page.map((row) => ({
+        id: row.id,
+        type: row.type,
+        created_at: row.created_at.toISOString(),
+        deliveries_created_at: row.deliveries_created_at?.toISOString() ?? null,
+        deliveries: {
+          total: row.total,
+          succeeded: row.succeeded,
+          pending: row.pending,
+          dead: row.dead,
+          cancelled: row.cancelled,
+        },
+      })),
+      next_cursor: nextCursor,
+    },
+    200,
+  );
+});
 
 events.use(
   bodyLimit({
