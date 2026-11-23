@@ -10,9 +10,11 @@ import { auth } from "./routes/auth";
 import { deliveries } from "./routes/deliveries";
 import { dlq } from "./routes/dlq";
 import { endpoints } from "./routes/endpoints";
+import { eventTypes } from "./routes/event-types";
 import { events } from "./routes/events";
 import { keys } from "./routes/keys";
 import { me } from "./routes/me";
+import { retryPolicy } from "./routes/retry-policy";
 import { stats } from "./routes/stats";
 import { tenant } from "./routes/tenant";
 
@@ -54,6 +56,8 @@ app.route("/api/me", me);
 app.route("/api/stats", stats);
 app.route("/api/keys", keys);
 app.route("/api/tenant", tenant);
+app.route("/api/event-types", eventTypes);
+app.route("/api/retry-policy", retryPolicy);
 
 app.use("/admin/*", withDb, requireOperator);
 app.route("/admin", admin);
