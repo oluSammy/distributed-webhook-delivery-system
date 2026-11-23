@@ -1,46 +1,31 @@
 "use client";
 
-import { Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import type { FormEvent } from "react";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 
-// Show only one type of event, by its exact name (order.paid). The address keeps it (?type=), so
-// it can be bookmarked or shared. A list of your registered types comes with the Settings pages.
-export function TypeFilter({ value }: { value: string | null }) {
+// Show only one type of event, chosen from the registered ones. The address keeps it (?type=), so
+// it can be bookmarked or shared. A type that's since been removed stays in the list while chosen,
+// since its past events are still there.
+export function TypeFilter({ value, types }: { value: string | null; types: string[] }) {
   const router = useRouter();
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const type = String(new FormData(event.currentTarget).get("type")).trim();
-    router.push(type ? `/events?type=${encodeURIComponent(type)}` : "/events");
-  }
-
+  const options = value && !types.includes(value) ? [value, ...types] : types;
   return (
-    <search>
-      <form onSubmit={submit} className="flex max-w-md items-center gap-2">
-        <Input
-          name="type"
-          aria-label="Event type"
-          defaultValue={value ?? ""}
-          placeholder="Only this type, like order.paid"
-          className="font-mono"
-        />
-        <Button type="submit" iconOnly aria-label="Show this type">
-          <Search aria-hidden />
-        </Button>
-        {value && (
-          <Button
-            iconOnly
-            variant="ghost"
-            aria-label="Show every type"
-            onClick={() => router.push("/events")}
-          >
-            <X aria-hidden />
-          </Button>
-        )}
-      </form>
-    </search>
+    <Select
+      aria-label="Event type"
+      value={value ?? ""}
+      onChange={(event) =>
+        router.push(
+          event.target.value ? `/events?type=${encodeURIComponent(event.target.value)}` : "/events",
+        )
+      }
+      className="max-w-xs font-mono"
+    >
+      <option value="">Every type</option>
+      {options.map((type) => (
+        <option key={type} value={type}>
+          {type}
+        </option>
+      ))}
+    </Select>
   );
 }

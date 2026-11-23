@@ -8,6 +8,7 @@ import { apiGet } from "@/lib/api";
 import { type EventPage, eventsPath } from "@/lib/events";
 import { EventList } from "./EventList";
 import { TypeFilter } from "./TypeFilter";
+import type { EventType } from "@/lib/event-types";
 
 export const metadata: Metadata = { title: "Events · Webhooks" };
 
@@ -26,10 +27,13 @@ export default function EventsPage({ searchParams }: { searchParams: SearchParam
 
 async function Events({ searchParams }: { searchParams: SearchParams }) {
   const { type = null } = await searchParams;
-  const first = await apiGet<EventPage>(eventsPath(type));
+  const [first, { event_types }] = await Promise.all([
+    apiGet<EventPage>(eventsPath(type)),
+    apiGet<{ event_types: EventType[] }>("/api/event-types"),
+  ]);
   return (
     <>
-      <TypeFilter key={type} value={type} />
+      <TypeFilter value={type} types={event_types.map((t) => t.name)} />
       {first.events.length > 0 ? (
         <EventList key={type} first={first} type={type} />
       ) : (

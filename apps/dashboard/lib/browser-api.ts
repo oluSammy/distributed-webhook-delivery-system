@@ -9,7 +9,7 @@ export class RequestError extends Error {
 }
 
 export async function apiRequest<T>(
-  method: "POST" | "PATCH" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<T> {

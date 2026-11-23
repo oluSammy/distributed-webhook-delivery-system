@@ -6,8 +6,12 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Table, Td, Th } from "@/components/ui/Table";
 import { apiGet, getMe } from "@/lib/api";
+import type { EventType } from "@/lib/event-types";
 import type { ApiKey } from "@/lib/keys";
+import type { RetryPolicy } from "@/lib/retry-policy";
 import { CreateKey } from "./CreateKey";
+import { EventTypes } from "./EventTypes";
+import { RetryPolicyForm } from "./RetryPolicyForm";
 import { RevokeKey } from "./RevokeKey";
 import { TenantName } from "./TenantName";
 
@@ -16,7 +20,7 @@ export const metadata: Metadata = { title: "Settings · Webhooks" };
 export default function SettingsPage() {
   return (
     <>
-      <TopBar title="Settings" subtitle="This workspace's name and API keys" />
+      <TopBar title="Settings" subtitle="This workspace's name, keys, event types and retries" />
       <Suspense fallback={<LoadingSettings />}>
         <Settings />
       </Suspense>
@@ -25,7 +29,12 @@ export default function SettingsPage() {
 }
 
 async function Settings() {
-  const [me, { keys }] = await Promise.all([getMe(), apiGet<{ keys: ApiKey[] }>("/api/keys")]);
+  const [me, { keys }, { event_types }, policy] = await Promise.all([
+    getMe(),
+    apiGet<{ keys: ApiKey[] }>("/api/keys"),
+    apiGet<{ event_types: EventType[] }>("/api/event-types"),
+    apiGet<RetryPolicy>("/api/retry-policy"),
+  ]);
   const tenant = me.tenants.find((t) => t.id === me.tenant_id);
   // The API checks this again on every change; here it only decides which buttons to show.
   const isOwner = tenant?.role === "owner";
@@ -110,6 +119,26 @@ async function Settings() {
           </Table>
         )}
       </Card>
+      <Card aria-labelledby="types-h">
+        <h2 id="types-h" className="text-[15px] font-semibold">
+          Event types
+        </h2>
+        <p className="mb-4 max-w-xl text-fg-3">
+          The types your code may send. An endpoint receives the ones its subscriptions match.
+        </p>
+        <EventTypes types={event_types} />
+      </Card>
+
+      <Card aria-labelledby="retries-h">
+        <h2 id="retries-h" className="text-[15px] font-semibold">
+          Retry policy
+        </h2>
+        <p className="mb-4 max-w-xl text-fg-3">
+          When an endpoint fails, how often to try again, and when to give up and move the delivery
+          to the dead-letter queue.
+        </p>
+        <RetryPolicyForm policy={policy} canEdit={isOwner} />
+      </Card>
     </>
   );
 }
@@ -118,6 +147,7 @@ function LoadingSettings() {
   return (
     <section aria-busy="true" aria-label="Loading settings" className="flex flex-col gap-5">
       <Skeleton className="h-36 w-full rounded-card" />
+      <Skeleton className="h-64 w-full rounded-card" />
       <Skeleton className="h-64 w-full rounded-card" />
     </section>
   );
