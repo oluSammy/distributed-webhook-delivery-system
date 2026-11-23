@@ -40,6 +40,11 @@
   --cancel: light-dark(#4b5563, #a1a7b3);
   --cancel-soft: light-dark(rgba(75, 85, 99, 0.09), rgba(161, 167, 179, 0.12));
 
+  /* The Overview chart's marks: the state colours */
+  --chart-ok: light-dark(#047857, #079669);
+  --chart-dead: light-dark(#b91c1c, #ef4444);
+  --chart-pend: light-dark(#1d4ed8, #3b82f6);
+
   /* Shadows can't go in light-dark(), only their colours can. */
   --shadow:
     0 1px 2px light-dark(rgba(14, 17, 22, 0.05), rgba(0, 0, 0, 0.3)),
