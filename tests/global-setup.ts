@@ -5,9 +5,10 @@ import { TEST_DATABASE_URL } from "./db.ts";
 
 const MIGRATIONS = join(import.meta.dirname, "../packages/db/migrations");
 
-// Runs once before the tests: creates the test database if it's missing, then applies any
-// migrations it hasn't had yet, exactly as pnpm migrate does for the real one.
-export default async function setup(): Promise<void> {
+// Runs once before the tests: waits until no other test run is using the database, creates it if
+// it's missing, then applies any migrations it hasn't had yet, exactly as pnpm migrate does for the
+// real one. Returns what vitest runs after the last test: letting the next run in.
+export default async function setup(): Promise<() => Promise<void>> {
   const url = new URL(TEST_DATABASE_URL);
   const name = url.pathname.slice(1);
   const server = new URL(url);
@@ -38,6 +39,7 @@ export default async function setup(): Promise<void> {
   } finally {
     await sql.end();
   }
+  return release;
 }
 
 // Every test empties the tables first, so two runs at once (two terminals, or a terminal and an
