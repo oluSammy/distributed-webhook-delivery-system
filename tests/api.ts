@@ -37,3 +37,28 @@ export async function call(path: string, init: RequestInit = {}): Promise<Respon
   await Promise.all(pending);
   return response;
 }
+
+// The dashboard's address in the tests (DASHBOARD_URL in api.ts): a browser on its pages sends it
+// as Origin.
+export const DASHBOARD = "http://dashboard.test";
+
+// A request as the dashboard's browser sends it: the session cookie, and Origin on changes.
+export function asBrowser(
+  path: string,
+  cookie: string,
+  {
+    method = "GET",
+    body,
+    origin = DASHBOARD,
+  }: { method?: string; body?: unknown; origin?: string } = {},
+): Promise<Response> {
+  const headers: Record<string, string> = { cookie, "content-type": "application/json" };
+  if (origin) {
+    headers.origin = origin;
+  }
+  return call(path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}

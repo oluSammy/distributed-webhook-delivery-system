@@ -23,6 +23,7 @@ export default async function setup(): Promise<void> {
     await admin.end();
   }
 
+  const release = await takeTheDatabase(url.href);
   await runner({
     databaseUrl: url.href,
     dir: MIGRATIONS,
@@ -37,4 +38,20 @@ export default async function setup(): Promise<void> {
   } finally {
     await sql.end();
   }
+}
+
+// Every test empties the tables first, so two runs at once (two terminals, or a terminal and an
+// editor) delete each other's rows and fail at random. A run holds this lock until it ends, and a
+// second run waits for it. It's a Postgres advisory lock: held by the connection, so a run that
+// crashes lets go too.
+async function takeTheDatabase(url: string): Promise<() => Promise<void>> {
+  const lock = postgres(url, { max: 1, onnotice: () => {} });
+  const [free] = await lock<{ taken: boolean }[]>`
+      select pg_try_advisory_lock(hashtext('wds tests')) as taken
+    `;
+  if (!free?.taken) {
+    console.log("Another test run is using the test database: waiting for it to finish…");
+    await lock`select pg_advisory_lock(hashtext('wds tests'))`;
+  }
+  return () => lock.end();
 }

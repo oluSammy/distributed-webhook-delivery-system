@@ -11,8 +11,10 @@ import { deliveries } from "./routes/deliveries";
 import { dlq } from "./routes/dlq";
 import { endpoints } from "./routes/endpoints";
 import { events } from "./routes/events";
+import { keys } from "./routes/keys";
 import { me } from "./routes/me";
 import { stats } from "./routes/stats";
+import { tenant } from "./routes/tenant";
 
 const app = createRouter();
 
@@ -50,6 +52,8 @@ app.route("/api/deliveries", deliveries);
 app.route("/api/dlq", dlq);
 app.route("/api/me", me);
 app.route("/api/stats", stats);
+app.route("/api/keys", keys);
+app.route("/api/tenant", tenant);
 
 app.use("/admin/*", withDb, requireOperator);
 app.route("/admin", admin);

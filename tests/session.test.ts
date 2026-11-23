@@ -1,36 +1,11 @@
 import { firstRow } from "@wds/core";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, call } from "./api.ts";
+import { api, asBrowser, call } from "./api.ts";
 import { connect, makeApiKey, makeEndpoint, makeSession, makeTenant, reset } from "./db.ts";
 
 const sql = connect();
 afterAll(() => sql.end());
 beforeEach(() => reset(sql));
-
-// The dashboard's address in the tests (DASHBOARD_URL in api.ts): a browser on its pages sends it
-// as Origin.
-const DASHBOARD = "http://dashboard.test";
-
-// A request as the dashboard's browser sends it: the session cookie, and Origin on changes.
-function asBrowser(
-  path: string,
-  cookie: string,
-  {
-    method = "GET",
-    body,
-    origin = DASHBOARD,
-  }: { method?: string; body?: unknown; origin?: string } = {},
-): Promise<Response> {
-  const headers: Record<string, string> = { cookie, "content-type": "application/json" };
-  if (origin) {
-    headers.origin = origin;
-  }
-  return call(path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-}
 
 describe("the API with a session (the dashboard)", () => {
   it("reads the session's tenant, and only that tenant", async () => {
