@@ -1,8 +1,10 @@
 import { ArrowRight, Ban, Check, Inbox, Pause } from "lucide-react";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { type ReactNode, Suspense } from "react";
 import { DailyUsage } from "@/components/DailyUsage";
+import { GetStarted } from "@/components/GetStarted";
 import { LocalTime } from "@/components/LocalTime";
 import { TopBar } from "@/components/TopBar";
 import { Card } from "@/components/ui/Card";
@@ -11,6 +13,7 @@ import { Tag } from "@/components/ui/Tag";
 import { apiGet } from "@/lib/api";
 import type { DeliveryPage } from "@/lib/deliveries";
 import { type Endpoint, endpointName } from "@/lib/endpoints";
+import { type Onboarding, onboardingDone } from "@/lib/onboarding";
 import { RANGE_LABELS, type Stats, toRange } from "@/lib/stats";
 import type { Usage } from "@/lib/usage";
 import { DeliveryChart } from "./DeliveryChart";
@@ -35,18 +38,22 @@ async function Overview({ searchParams }: { searchParams: SearchParams }) {
   const range = toRange((await searchParams).range);
   // The numbers and chart, the endpoints (for the ones stopped), and the latest deliveries that
   // died, all asked for at the same time.
-  const [stats, { endpoints }, { deliveries: died }, usage] = await Promise.all([
+  const [stats, { endpoints }, { deliveries: died }, usage, onboarding] = await Promise.all([
     apiGet<Stats>(`/api/stats?range=${range}`),
     apiGet<{ endpoints: Endpoint[] }>("/api/endpoints"),
     apiGet<DeliveryPage>("/api/deliveries?state=dead&limit=5"),
     apiGet<Usage>("/api/usage"),
+    apiGet<Onboarding>("/api/onboarding"),
   ]);
   const { succeeded, dead } = stats.deliveries;
   const finished = succeeded + dead;
   const stopped = endpoints.filter((endpoint) => endpoint.state !== "active");
+  const requestHeaders = await headers();
+  const origin = `${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`;
 
   return (
     <>
+      {!onboardingDone(onboarding) && <GetStarted onboarding={onboarding} origin={origin} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-[15px] font-semibold">In {RANGE_LABELS[range]}</h2>
         <RangeSwitch value={range} />
@@ -54,7 +61,7 @@ async function Overview({ searchParams }: { searchParams: SearchParams }) {
 
       <section
         aria-label="Numbers"
-        className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]"
+        className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]"
       >
         <Figure label="Events received" value={stats.events}>
           sent by your code

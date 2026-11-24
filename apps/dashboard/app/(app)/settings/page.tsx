@@ -54,7 +54,7 @@ async function Settings() {
         <TenantName name={tenant?.name ?? ""} canEdit={isOwner} />
       </Card>
 
-      <Card aria-labelledby="keys-h">
+      <Card aria-labelledby="keys-h" id="api-keys" className="scroll-mt-5">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 id="keys-h" className="text-[15px] font-semibold">
@@ -125,7 +125,7 @@ async function Settings() {
           </Table>
         )}
       </Card>
-      <Card aria-labelledby="types-h">
+      <Card aria-labelledby="types-h" id="event-types" className="scroll-mt-5">
         <h2 id="types-h" className="text-[15px] font-semibold">
           Event types
         </h2>
