@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { DailyUsage } from "@/components/DailyUsage";
 import { LocalTime } from "@/components/LocalTime";
 import { TopBar } from "@/components/TopBar";
 import { Card } from "@/components/ui/Card";
@@ -9,6 +10,7 @@ import { apiGet, getMe } from "@/lib/api";
 import type { EventType } from "@/lib/event-types";
 import type { ApiKey } from "@/lib/keys";
 import type { RetryPolicy } from "@/lib/retry-policy";
+import type { Usage } from "@/lib/usage";
 import { CreateKey } from "./CreateKey";
 import { EventTypes } from "./EventTypes";
 import { RetryPolicyForm } from "./RetryPolicyForm";
@@ -20,7 +22,10 @@ export const metadata: Metadata = { title: "Settings · Webhooks" };
 export default function SettingsPage() {
   return (
     <>
-      <TopBar title="Settings" subtitle="This workspace's name, keys, event types and retries" />
+      <TopBar
+        title="Settings"
+        subtitle="This workspace's name, keys, event types, retries and usage"
+      />
       <Suspense fallback={<LoadingSettings />}>
         <Settings />
       </Suspense>
@@ -29,11 +34,12 @@ export default function SettingsPage() {
 }
 
 async function Settings() {
-  const [me, { keys }, { event_types }, policy] = await Promise.all([
+  const [me, { keys }, { event_types }, policy, usage] = await Promise.all([
     getMe(),
     apiGet<{ keys: ApiKey[] }>("/api/keys"),
     apiGet<{ event_types: EventType[] }>("/api/event-types"),
     apiGet<RetryPolicy>("/api/retry-policy"),
+    apiGet<Usage>("/api/usage"),
   ]);
   const tenant = me.tenants.find((t) => t.id === me.tenant_id);
   // The API checks this again on every change; here it only decides which buttons to show.
@@ -139,6 +145,28 @@ async function Settings() {
         </p>
         <RetryPolicyForm policy={policy} canEdit={isOwner} />
       </Card>
+      <Card aria-labelledby="usage-h" id="usage" className="scroll-mt-5">
+        <h2 id="usage-h" className="text-[15px] font-semibold">
+          Usage
+        </h2>
+        <p className="mb-4 max-w-xl text-fg-3">
+          Every workspace may send {usage.daily_limit.toLocaleString("en")} events a day (UTC).
+        </p>
+        <DailyUsage usage={usage} />
+        <ul className="mt-4 flex max-w-2xl list-disc flex-col gap-1 pl-5 text-fg-2">
+          <li>
+            At the limit, <code className="font-mono text-[12.5px]">POST /api/events</code> answers{" "}
+            <code className="font-mono text-[12.5px]">429</code> with{" "}
+            <code className="font-mono text-[12.5px]">Retry-After</code>, the seconds until 00:00
+            UTC. A batch that would go over is refused whole.
+          </li>
+          <li>
+            Every accepted event's answer says what's left:{" "}
+            <code className="font-mono text-[12.5px]">RateLimit-Remaining</code>.
+          </li>
+          <li>Repeats of an Idempotency-Key, and refused requests, don't count.</li>
+        </ul>
+      </Card>
     </>
   );
 }
@@ -149,6 +177,7 @@ function LoadingSettings() {
       <Skeleton className="h-36 w-full rounded-card" />
       <Skeleton className="h-64 w-full rounded-card" />
       <Skeleton className="h-64 w-full rounded-card" />
+      <Skeleton className="h-40 w-full rounded-card" />
     </section>
   );
 }

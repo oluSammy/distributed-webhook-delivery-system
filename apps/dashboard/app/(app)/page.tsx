@@ -2,6 +2,7 @@ import { ArrowRight, Ban, Check, Inbox, Pause } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { type ReactNode, Suspense } from "react";
+import { DailyUsage } from "@/components/DailyUsage";
 import { LocalTime } from "@/components/LocalTime";
 import { TopBar } from "@/components/TopBar";
 import { Card } from "@/components/ui/Card";
@@ -11,6 +12,7 @@ import { apiGet } from "@/lib/api";
 import type { DeliveryPage } from "@/lib/deliveries";
 import { type Endpoint, endpointName } from "@/lib/endpoints";
 import { RANGE_LABELS, type Stats, toRange } from "@/lib/stats";
+import type { Usage } from "@/lib/usage";
 import { DeliveryChart } from "./DeliveryChart";
 import { RangeSwitch } from "./RangeSwitch";
 
@@ -33,10 +35,11 @@ async function Overview({ searchParams }: { searchParams: SearchParams }) {
   const range = toRange((await searchParams).range);
   // The numbers and chart, the endpoints (for the ones stopped), and the latest deliveries that
   // died, all asked for at the same time.
-  const [stats, { endpoints }, { deliveries: died }] = await Promise.all([
+  const [stats, { endpoints }, { deliveries: died }, usage] = await Promise.all([
     apiGet<Stats>(`/api/stats?range=${range}`),
     apiGet<{ endpoints: Endpoint[] }>("/api/endpoints"),
     apiGet<DeliveryPage>("/api/deliveries?state=dead&limit=5"),
+    apiGet<Usage>("/api/usage"),
   ]);
   const { succeeded, dead } = stats.deliveries;
   const finished = succeeded + dead;
@@ -68,6 +71,13 @@ async function Overview({ searchParams }: { searchParams: SearchParams }) {
           gave up, waiting for you
         </Figure>
       </section>
+
+      <Card aria-labelledby="usage-h" className="py-4">
+        <h2 id="usage-h" className="sr-only">
+          Today's events
+        </h2>
+        <DailyUsage usage={usage} />
+      </Card>
 
       <Card aria-labelledby="chart-h">
         <h2 id="chart-h" className="text-[15px] font-semibold">
