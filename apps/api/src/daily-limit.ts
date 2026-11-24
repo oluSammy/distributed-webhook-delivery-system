@@ -3,10 +3,6 @@ import type { Sql, TransactionSql } from "postgres";
 import { ApiError } from "./errors";
 import type { AppEnv } from "./types";
 
-// The daily event limit (docs/extra-features.md, item 9): every tenant may send DAILY_EVENT_LIMIT
-// events per UTC day. Only accepted events count: not refused requests, and not an Idempotency-Key
-// replay, which returns the event already stored.
-
 const DEFAULT_DAILY_LIMIT = 50_000;
 
 export type Usage = { events: number; daily_limit: number };

@@ -18,6 +18,7 @@ const Me = z.object({
     avatar_url: z.string().nullable(),
     is_operator: z.boolean(),
   }),
+  paused: z.object({ workspace: z.boolean(), everyone: z.boolean() }),
   tenant_id: z.string(), // the tenant the dashboard is showing: one of tenants
   tenants: z.array(Tenant), // every tenant the person is in, by name
 });
@@ -53,7 +54,7 @@ export const me = createRouter();
 me.openapi(getMe, async (c) => {
   const session = requireSession(c);
   const sql = c.get("sql");
-  const [[user], tenants] = await Promise.all([
+  const [[user], tenants,  [paused]] = await Promise.all([
     sql<z.infer<typeof Me>["user"][]>`
         select id, login, name, avatar_url, is_operator from users where id = ${session.userId}
       `,
@@ -64,11 +65,24 @@ me.openapi(getMe, async (c) => {
         where m.user_id = ${session.userId}
         order by t.name
       `,
+      sql<{ workspace: boolean; everyone: boolean }[]>`
+      select t.paused as workspace, g.paused as everyone
+      from tenants t cross join global_settings g
+      where t.id = ${c.get("tenantId")}
+    `,
   ]);
   if (!user) {
     throw new ApiError(401, "unauthorized", "Signed out or session expired");
   }
-  return c.json({ user, tenant_id: c.get("tenantId"), tenants }, 200);
+  return c.json(
+    {
+      user,
+      tenant_id: c.get("tenantId"),
+      tenants,
+      paused: paused ?? { workspace: false, everyone: false },
+    },
+    200,
+  );
 });
 
 // Points this session at another tenant, if the person is in it.
