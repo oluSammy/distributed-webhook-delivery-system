@@ -3,6 +3,7 @@ import { type ReactNode, Suspense } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { UsageBanner } from "@/components/UsageBanner";
 import { getMe } from "@/lib/api";
+import { PauseBanner } from "@/components/PauseBanner";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
@@ -14,6 +15,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <main className="flex min-w-0 flex-1 flex-col gap-5">
         {/* Only from 80% of today's event limit. It never holds up the page: until the API
             answers, nothing is shown in its place. */}
+            <Suspense fallback={null}>
+          <PauseBanner />
+        </Suspense>
         <Suspense fallback={null}>
           <UsageBanner />
         </Suspense>

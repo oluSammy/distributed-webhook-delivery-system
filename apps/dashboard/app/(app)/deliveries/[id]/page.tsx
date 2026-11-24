@@ -17,6 +17,7 @@ import type { DeliveryDetail } from "@/lib/deliveries";
 import { plural } from "@/lib/format";
 import { AttemptTimeline } from "./AttemptTimeline";
 import { DeliveryActions } from "./DeliveryActions";
+import { FindById } from "@/components/FindById";
 
 export const metadata: Metadata = { title: "Delivery · Webhooks" };
 
@@ -71,6 +72,7 @@ async function Delivery({ params }: { params: Params }) {
         </div>
         <div className="flex items-center gap-2">
           <ThemeSwitch />
+          <FindById />
           <DeliveryActions delivery={delivery} />
         </div>
       </header>

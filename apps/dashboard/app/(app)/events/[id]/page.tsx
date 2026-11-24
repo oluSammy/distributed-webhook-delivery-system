@@ -15,6 +15,7 @@ import { Table, Td, Th } from "@/components/ui/Table";
 import { apiGet } from "@/lib/api";
 import type { DeliveryPage } from "@/lib/deliveries";
 import type { EventDetail } from "@/lib/events";
+import { FindById } from "@/components/FindById";
 
 export const metadata: Metadata = { title: "Event · Webhooks" };
 
@@ -58,11 +59,12 @@ async function EventView({ params }: { params: Params }) {
           <h1 className="font-mono text-xl font-semibold">{event.type}</h1>
         </div>
         <ThemeSwitch />
+        <FindById />
       </header>
 
       <section
         aria-label="Event facts"
-        className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]"
+        className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]"
       >
         <Fact label="Received">
           <LocalTime iso={event.created_at} />

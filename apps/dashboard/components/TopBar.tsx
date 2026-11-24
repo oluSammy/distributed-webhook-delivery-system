@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
 import { ThemeSwitch } from "./ThemeSwitch";
+import { FindById } from "./FindById";
 
-// The top of every page: its title (with an optional line under it), the page's own buttons,
-// then the theme switch, which every page shares. (The notifications bell comes back with
-// notifications: docs/extra-features.md, item 4.)
 export function TopBar({
   title,
   subtitle,
@@ -20,6 +18,7 @@ export function TopBar({
         {subtitle && <p className="text-fg-3">{subtitle}</p>}
       </div>
       {children}
+      <FindById />
       <ThemeSwitch />
     </header>
   );

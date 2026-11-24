@@ -23,6 +23,7 @@ import { EditEndpoint } from "./EditEndpoint";
 import { EndpointActions } from "./EndpointActions";
 import { HealthPanel } from "./HealthPanel";
 import { SecretsPanel } from "./SecretsPanel";
+import { FindById } from "@/components/FindById";
 
 export const metadata: Metadata = { title: "Endpoint · Webhooks" };
 
@@ -80,6 +81,7 @@ async function EndpointView({ params }: { params: Params }) {
         </div>
         <div className="flex items-center gap-2">
           <ThemeSwitch />
+          <FindById />
           <EndpointActions endpoint={endpoint} />
         </div>
       </header>

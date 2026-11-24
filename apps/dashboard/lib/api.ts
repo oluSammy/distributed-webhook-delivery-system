@@ -40,6 +40,7 @@ export type Me = {
   };
   tenant_id: string;
   tenants: { id: string; name: string; role: "owner" | "member" }[];
+  paused: { workspace: boolean; everyone: boolean }; // sending held, by an operator
 };
 
 // The signed-in person. cache() makes it one request per page view, however many components ask.
