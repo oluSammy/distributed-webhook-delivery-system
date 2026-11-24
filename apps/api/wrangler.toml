@@ -30,7 +30,9 @@ required = ["MASTER_KEY_V1", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]
 ALLOW_LOCAL_ENDPOINTS = "false"
 # The dashboard's address: GitHub sends people back there after sign-in, and so does the API.
 DASHBOARD_URL = "https://webhooks.olumorin.dev"
-
+# The most events each tenant may send in a UTC day 
+# The same for every tenant; POST /api/events answers 429 past it.
+DAILY_EVENT_LIMIT = "50000"
 # How many days rows are kept (parseRetention in core checks the rules). The spec's defaults are
 # 7 / 30 / 30; events get 3 more days here, so a delivery redelivered on its last day can still
 # read its event. The cloud deploy will use less: Neon Free has 0.5 GB.

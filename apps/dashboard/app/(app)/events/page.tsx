@@ -5,10 +5,10 @@ import { TopBar } from "@/components/TopBar";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { apiGet } from "@/lib/api";
+import type { EventType } from "@/lib/event-types";
 import { type EventPage, eventsPath } from "@/lib/events";
 import { EventList } from "./EventList";
 import { TypeFilter } from "./TypeFilter";
-import type { EventType } from "@/lib/event-types";
 
 export const metadata: Metadata = { title: "Events · Webhooks" };
 

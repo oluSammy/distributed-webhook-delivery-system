@@ -17,6 +17,7 @@ import { me } from "./routes/me";
 import { retryPolicy } from "./routes/retry-policy";
 import { stats } from "./routes/stats";
 import { tenant } from "./routes/tenant";
+import { usage } from "./routes/usage";
 
 const app = createRouter();
 
@@ -58,6 +59,7 @@ app.route("/api/keys", keys);
 app.route("/api/tenant", tenant);
 app.route("/api/event-types", eventTypes);
 app.route("/api/retry-policy", retryPolicy);
+app.route("/api/usage", usage);
 
 app.use("/admin/*", withDb, requireOperator);
 app.route("/admin", admin);

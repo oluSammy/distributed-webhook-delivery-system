@@ -33,7 +33,7 @@ export function EndpointFields({ errors, endpoint }: { errors: FieldErrors; endp
       <Field
         label="Description"
         error={errors.description}
-        help="Shown in lists and notifications."
+        help="Shown in lists instead of the URL."
       >
         {(control) => (
           <Input

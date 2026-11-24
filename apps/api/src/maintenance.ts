@@ -52,6 +52,7 @@ export async function runMaintenance(env: Env): Promise<void> {
     await run("dropped", () => dropExpiredPartitions(sql, parseRetention(env)));
     await run("attempts", () => dropExpiredAttempts(sql, parseRetention(env)));
     await run("keys", () => deleteExpiredKeys(sql));
+    await run("usage", () => deleteOldUsage(sql));
     // Last, so whatever the repairs made due is sent straight away. A wake-up or alarm can also be
     // lost, for example while the dispatcher is being redeployed. Waking it here means waiting
     // events and due deliveries never sit longer than one run. It also runs the create job, for
@@ -200,4 +201,12 @@ async function dropExpiredAttempts(
     archived: partitions?.archived ?? 0,
     deleted: deleted.count,
   };
+}
+
+// Days of the daily event count older than 30 are only history: nothing reads them.
+async function deleteOldUsage(sql: Sql): Promise<number> {
+  const deleted = await sql`
+      delete from tenant_daily_usage where day < (now() at time zone 'utc')::date - 30
+    `;
+  return deleted.count;
 }

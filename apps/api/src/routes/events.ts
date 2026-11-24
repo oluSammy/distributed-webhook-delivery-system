@@ -3,6 +3,7 @@ import { firstRow, requestHash } from "@wds/core";
 import { bodyLimit } from "hono/body-limit";
 import type { Sql, TransactionSql } from "postgres";
 import { decodeCursor, encodeCursor } from "../cursor";
+import { countToday, dailyLimit, limitReached, setUsageHeaders, type Usage } from "../daily-limit";
 import { wakeDispatcher } from "../dispatcher";
 import { ApiError } from "../errors";
 import { createRouter } from "../router";
@@ -219,8 +220,12 @@ events.openapi(createEvent, async (c) => {
 
   const accepted =
     idempotencyKey === undefined
-      ? await insertEvent(sql, tenantId, type, payload)
-      : await insertEventOnce(sql, tenantId, type, payload, idempotencyKey);
+      ? await insertEvent(sql, tenantId, type, payload, dailyLimit(c.env))
+      : await insertEventOnce(sql, tenantId, type, payload, idempotencyKey, dailyLimit(c.env));
+
+  if (accepted.usage) {
+    setUsageHeaders(c, accepted.usage);
+  }
 
   if (accepted.replayed) {
     c.header("Idempotent-Replayed", "true");
@@ -242,7 +247,8 @@ events.openapi(createEventBatch, async (c) => {
     batch.map((event) => event.type),
   );
 
-  const inserted = await insertEvents(sql, tenantId, batch);
+  const { events: inserted, usage } = await insertEvents(sql, tenantId, batch, dailyLimit(c.env));
+  setUsageHeaders(c, usage);
   c.executionCtx.waitUntil(wakeDispatcher(c.env));
 
   return c.json(
@@ -289,21 +295,34 @@ events.openapi(getEvent, async (c) => {
 // - Same key and same body (same request_hash) → the original event is returned with
 //   Idempotent-Replayed: true, and nothing new is created
 // - Same key, different body → 422 idempotency_key_reused
-
-async function insertEvent(sql: Sql, tenantId: string, type: string, payload: EventPayload) {
-  const { created_at, id } = firstRow(
-    await sql<{ id: string; created_at: Date }[]>`
-    with inserted as (
+async function insertEvent(
+  sql: Sql,
+  tenantId: string,
+  type: string,
+  payload: EventPayload,
+  limit: number,
+) {
+  // No row back: today's count is at the limit, so neither the count nor the event changed.
+  const [row] = await sql<({ id: string; created_at: Date } & Usage)[]>`
+    with usage as (${countToday(sql, tenantId, 1, limit)}),
+    inserted as (
       insert into events (tenant_id, type, payload)
-      values (${tenantId}, ${type}, ${sql.json(payload)})
+      select ${tenantId}, ${type}, ${sql.json(payload)} from usage
       returning id, created_at
     ),
     waiting as (${markWaiting(sql, tenantId)})
-    select id, created_at from inserted
-  `,
-  );
-
-  return { id, createdAt: created_at, replayed: false };
+    select inserted.id, inserted.created_at, usage.events, usage.daily_limit
+    from inserted, usage
+  `;
+  if (!row) {
+    throw await limitReached(sql, tenantId, 1, limit);
+  }
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    replayed: false,
+    usage: { events: row.events, daily_limit: row.daily_limit },
+  };
 }
 
 async function insertEventOnce(
@@ -312,6 +331,7 @@ async function insertEventOnce(
   type: string,
   payload: EventPayload,
   idempotencyKey: string,
+  limit: number,
 ) {
   const hash = await requestHash(type, payload);
 
@@ -338,6 +358,12 @@ async function insertEventOnce(
     `;
 
     if (claimed) {
+      // Counted only now, once the key is ours: a replay returns the stored event and counts nothing.
+      const [usage] = await countToday(tx, tenantId, 1, limit);
+      if (!usage) {
+        throw await limitReached(tx, tenantId, 1, limit);
+      }
+
       await tx`
         insert into events (id, tenant_id, type, payload, idempotency_key, created_at)
         values (${fresh.id}, ${tenantId}, ${type}, ${tx.json(payload)}, ${idempotencyKey}, ${fresh.created_at})
@@ -345,7 +371,7 @@ async function insertEventOnce(
 
       await markWaiting(tx, tenantId);
 
-      return { id: fresh.id, createdAt: fresh.created_at, replayed: false };
+      return { id: fresh.id, createdAt: fresh.created_at, replayed: false, usage };
     }
 
     // request_hash = ${hash} as same_request because two answers from one query: who owns the key, and whether it's the same request.
@@ -365,7 +391,12 @@ async function insertEventOnce(
       );
     }
 
-    return { id: existing.event_id, createdAt: existing.event_created_at, replayed: true };
+    return {
+      id: existing.event_id,
+      createdAt: existing.event_created_at,
+      replayed: true,
+      usage: undefined,
+    };
   });
 }
 
@@ -391,23 +422,35 @@ async function insertEvents(
   sql: Sql,
   tenantId: string,
   batch: EventInput[],
-): Promise<{ id: string; type: string; created_at: Date }[]> {
-  return sql<{ id: string; type: string; created_at: Date }[]>`
-    with input as (
+  limit: number,
+): Promise<{ events: { id: string; type: string; created_at: Date }[]; usage: Usage }> {
+  // The whole batch counts, or none of it: a batch that would pass the limit stores nothing.
+  const rows = await sql<({ id: string; type: string; created_at: Date } & Usage)[]>`
+    with usage as (${countToday(sql, tenantId, batch.length, limit)}),
+    input as (
       select t.position, uuidv7() as id, t.item ->> 'type' as type, t.item -> 'payload' as payload
       from jsonb_array_elements(${sql.json(batch)}) with ordinality as t(item, position)
     ),
-     inserted as (
+    inserted as (
       insert into events (id, tenant_id, type, payload)
-      select id, ${tenantId}, type, payload from input
+      select id, ${tenantId}, type, payload from input, usage
       returning id, created_at
     ),
     waiting as (${markWaiting(sql, tenantId)})
-    select inserted.id, input.type, inserted.created_at
+    select inserted.id, input.type, inserted.created_at, usage.events, usage.daily_limit
     from inserted
     join input using (id)
+    cross join usage
     order by input.position
   `;
+  const [first] = rows;
+  if (!first) {
+    throw await limitReached(sql, tenantId, batch.length, limit);
+  }
+  return {
+    events: rows.map(({ id, type, created_at }) => ({ id, type, created_at })),
+    usage: { events: first.events, daily_limit: first.daily_limit },
+  };
 }
 
 // Puts the tenant in tenants_with_events, so the Creator Worker takes its new events in its turn.

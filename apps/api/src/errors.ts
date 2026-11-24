@@ -7,6 +7,7 @@ export class ApiError extends Error {
     readonly status: ContentfulStatusCode,
     readonly code: string,
     message: string,
+    readonly headers: Record<string, string> = {}, // sent with the error, like Retry-After
   ) {
     super(message);
   }
@@ -14,7 +15,7 @@ export class ApiError extends Error {
 
 export const handleError: ErrorHandler = (err, c) => {
   if (err instanceof ApiError) {
-    return c.json({ error: { code: err.code, message: err.message } }, err.status);
+    return c.json({ error: { code: err.code, message: err.message } }, err.status, err.headers);
   }
   if (err instanceof HTTPException) {
     return c.json({ error: { code: "bad_request", message: err.message } }, err.status);

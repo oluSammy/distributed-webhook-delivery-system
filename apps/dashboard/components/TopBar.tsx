@@ -1,11 +1,9 @@
-import { Bell } from "lucide-react";
-import Link from "next/link";
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/Button";
 import { ThemeSwitch } from "./ThemeSwitch";
 
 // The top of every page: its title (with an optional line under it), the page's own buttons,
-// then the theme switch and the notifications bell, which every page shares.
+// then the theme switch, which every page shares. (The notifications bell comes back with
+// notifications: docs/extra-features.md, item 4.)
 export function TopBar({
   title,
   subtitle,
@@ -23,11 +21,6 @@ export function TopBar({
       </div>
       {children}
       <ThemeSwitch />
-      <Button iconOnly asChild>
-        <Link href="/notifications" aria-label="Notifications">
-          <Bell aria-hidden />
-        </Link>
-      </Button>
     </header>
   );
 }

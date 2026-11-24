@@ -16,6 +16,8 @@ const env = {
   GITHUB_CLIENT_SECRET: "test-client-secret",
   DASHBOARD_URL: "http://dashboard.test",
   MASTER_KEY_V1: TEST_MASTER_KEY,
+  // Lower than the real 50,000, so the daily limit's tests reach it quickly.
+  DAILY_EVENT_LIMIT: "1000",
 } as unknown as Env;
 
 export async function api(path: string, key: string, init: RequestInit = {}): Promise<Response> {

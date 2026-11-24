@@ -1,18 +1,7 @@
 "use client";
 
 import classNames from "classnames";
-import {
-  ArchiveX,
-  Bell,
-  LayoutDashboard,
-  Menu,
-  ScrollText,
-  Send,
-  Settings,
-  Webhook,
-  X,
-  Zap,
-} from "lucide-react";
+import { ArchiveX, LayoutDashboard, Menu, Send, Settings, Webhook, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -31,15 +20,11 @@ const groups = [
       { href: "/deliveries", label: "Deliveries", icon: Send },
       { href: "/events", label: "Events", icon: Zap },
       { href: "/dlq", label: "Dead-letter queue", icon: ArchiveX },
-      { href: "/notifications", label: "Notifications", icon: Bell },
     ],
   },
   {
     title: "Account",
-    links: [
-      { href: "/audit", label: "Audit log", icon: ScrollText },
-      { href: "/settings", label: "Settings", icon: Settings },
-    ],
+    links: [{ href: "/settings", label: "Settings", icon: Settings }],
   },
 ];
 
