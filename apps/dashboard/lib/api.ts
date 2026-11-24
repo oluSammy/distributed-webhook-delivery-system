@@ -1,7 +1,8 @@
 import "server-only";
-import { cookies } from "next/headers";
-import { notFound } from "next/navigation";
+import { cookies, headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
+import { PATH_HEADER } from "./path-header";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:8787";
 
@@ -13,6 +14,11 @@ export async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     headers: session ? { cookie: `session=${session.value}` } : {},
   });
+
+  if (response.status === 401) {
+    const here = (await headers()).get(PATH_HEADER) ?? "/";
+    redirect(`/sign-in?error=expired&next=${encodeURIComponent(here)}`);
+  }
 
   if (response.status === 404) {
     notFound();

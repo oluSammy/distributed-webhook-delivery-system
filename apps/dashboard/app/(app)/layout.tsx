@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { type ReactNode, Suspense } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { UsageBanner } from "@/components/UsageBanner";
@@ -22,6 +23,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   );
 }
 
+// If /api/me fails, the sidebar keeps its empty frame, so the page's own error shows inside the
+// layout instead of the whole screen failing. A redirect to sign in (a 401) still goes through.
 async function SignedInSidebar() {
-  return <Sidebar me={await getMe()} />;
+  try {
+    return <Sidebar me={await getMe()} />;
+  } catch (error) {
+    unstable_rethrow(error);
+    return <Sidebar me={null} />;
+  }
 }
