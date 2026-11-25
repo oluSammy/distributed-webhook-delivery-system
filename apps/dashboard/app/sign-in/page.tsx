@@ -75,10 +75,7 @@ function SignInCard({ error, next = "/" }: { error?: string; next?: string }) {
         </Banner>
       )}
       <GitHubButton next={next} retry={problem !== undefined} />
-      <p className="text-[12.5px] text-fg-3">
-        No passwords. We read your GitHub username and avatar only. New here? Signing in creates
-        your own workspace.
-      </p>
+      <p className="text-[12.5px] text-fg-3">New here? Signing in creates your own workspace.</p>
     </Card>
   );
 }

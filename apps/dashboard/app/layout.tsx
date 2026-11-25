@@ -17,6 +17,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a fixed script we wrote, no outside data */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>

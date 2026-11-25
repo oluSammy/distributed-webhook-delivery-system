@@ -20,6 +20,9 @@ export function EditEndpoint({ endpoint }: { endpoint: Endpoint }) {
   const toast = useToast();
   const [errors, setErrors] = useState<FieldErrors>({});
   const [busy, setBusy] = useState(false);
+  // Discard puts every field back. The subscriptions are kept in React, which a form reset doesn't
+  // reach, so the fields are drawn again from scratch instead.
+  const [drawn, setDrawn] = useState(0);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,12 +45,17 @@ export function EditEndpoint({ endpoint }: { endpoint: Endpoint }) {
 
   return (
     <form onSubmit={save} noValidate className="flex max-w-xl flex-col gap-4">
-      <EndpointFields errors={errors} endpoint={endpoint} />
+      <EndpointFields key={drawn} errors={errors} endpoint={endpoint} />
       <p className="text-[12.5px] text-fg-3">
         New subscriptions apply to events from now on; deliveries already made stay as they are.
       </p>
       <div className="flex gap-2">
-        <Button type="reset" onClick={() => setErrors({})}>
+        <Button
+          onClick={() => {
+            setErrors({});
+            setDrawn(drawn + 1);
+          }}
+        >
           Discard changes
         </Button>
         <Button type="submit" variant="primary" disabled={busy}>

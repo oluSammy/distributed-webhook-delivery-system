@@ -2,6 +2,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { RequestError } from "@/lib/browser-api";
 import type { Endpoint } from "@/lib/endpoints";
+import { SubscriptionPicker } from "./SubscriptionPicker";
 
 // The problems to show, under the field they belong to; "form" for anything else.
 export type FieldErrors = Partial<
@@ -44,21 +45,7 @@ export function EndpointFields({ errors, endpoint }: { errors: FieldErrors; endp
           />
         )}
       </Field>
-      <Field
-        label="Subscriptions"
-        error={errors.subscriptions}
-        help="Event types it receives: an exact type (order.paid), a prefix (order.*), or * for everything. Separate them with commas."
-      >
-        {(control) => (
-          <Input
-            {...control}
-            name="subscriptions"
-            defaultValue={endpoint?.subscriptions.join(", ") ?? "*"}
-            required
-            className="font-mono"
-          />
-        )}
-      </Field>
+      <SubscriptionPicker initial={endpoint?.subscriptions ?? ["*"]} error={errors.subscriptions} />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Rate limit (per second)" help="1–10,000">
           {(control) => (
@@ -94,8 +81,6 @@ export function EndpointFields({ errors, endpoint }: { errors: FieldErrors; endp
   );
 }
 
-// The fields as the API takes them. Subscriptions are typed as text: commas, spaces and new lines
-// all separate them.
 export function readEndpointForm(form: FormData) {
   return {
     url: String(form.get("url")).trim(),

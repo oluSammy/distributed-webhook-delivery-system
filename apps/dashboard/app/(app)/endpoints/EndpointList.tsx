@@ -7,7 +7,8 @@ import { LocalTime } from "@/components/LocalTime";
 import { Chip } from "@/components/ui/Chip";
 import { Table, Td, Th } from "@/components/ui/Table";
 import { Tag } from "@/components/ui/Tag";
-import { type Endpoint, endpointName, successRate } from "@/lib/endpoints";
+import { type Endpoint, successRate } from "@/lib/endpoints";
+import { truncateMiddle } from "@/lib/format";
 
 const FILTERS = [
   { value: "all", label: "All" },
@@ -20,6 +21,9 @@ type Filter = (typeof FILTERS)[number]["value"];
 
 // How many subscriptions to show in a row before "+3 more".
 const SHOWN_SUBSCRIPTIONS = 2;
+
+// The most characters of a URL to show; longer ones lose their middle. The full URL is on hover.
+const URL_LENGTH = 40;
 
 // The tenant's endpoints, with chips to show one state. A tenant has few endpoints, so all of
 // them come at once and the chips filter here, in the browser.
@@ -59,15 +63,16 @@ export function EndpointList({ endpoints }: { endpoints: Endpoint[] }) {
           {shown.map((endpoint) => (
             <tr key={endpoint.id}>
               <Td>
-                <Link href={`/endpoints/${endpoint.id}`} className="font-medium hover:underline">
-                  {endpointName(endpoint)}
+                <Link
+                  href={`/endpoints/${endpoint.id}`}
+                  title={endpoint.description ? undefined : endpoint.url}
+                  className="font-medium hover:underline"
+                >
+                  {endpoint.description || truncateMiddle(endpoint.url, URL_LENGTH)}
                 </Link>
                 {endpoint.description && (
-                  <span
-                    title={endpoint.url}
-                    className="block max-w-[280px] truncate font-mono text-xs text-fg-3"
-                  >
-                    {endpoint.url}
+                  <span title={endpoint.url} className="block font-mono text-xs text-fg-3">
+                    {truncateMiddle(endpoint.url, URL_LENGTH)}
                   </span>
                 )}
               </Td>
