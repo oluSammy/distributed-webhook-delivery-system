@@ -25,3 +25,11 @@ export function describePolicy(policy: RetryPolicy): string {
 export function retryCeilingSeconds(policy: RetryPolicy, failures: number): number {
   return Math.min(policy.cap_seconds, policy.base_seconds * 2 ** Math.max(0, failures - 1));
 }
+
+// The policy with nothing set: the same defaults as retryPolicySchema in packages/core.
+export const DEFAULT_RETRY_POLICY: RetryPolicy = {
+  base_seconds: 30,
+  cap_seconds: 7200,
+  max_attempts: 10,
+  max_age_seconds: 259_200,
+};

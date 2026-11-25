@@ -17,7 +17,7 @@ export async function UsageBanner() {
   }
   const limit = usage.daily_limit.toLocaleString("en");
   const details = (
-    <Link href="/settings#usage" className="font-medium underline">
+    <Link href="/settings/usage" className="font-medium underline">
       Usage
     </Link>
   );

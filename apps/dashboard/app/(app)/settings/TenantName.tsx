@@ -41,7 +41,6 @@ export function TenantName({ name, canEdit }: { name: string; canEdit: boolean }
       <div>
         <p className="text-[13px] font-medium">Name</p>
         <p className="mt-1">{name}</p>
-        <p className="mt-1.5 text-[12.5px] text-fg-3">Only owners can change it.</p>
       </div>
     );
   }

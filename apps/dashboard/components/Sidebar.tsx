@@ -23,6 +23,7 @@ import { TenantSwitcher } from "@/components/TenantSwitcher";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { Me } from "@/lib/api";
+import { SETTINGS_SECTIONS } from "@/lib/settings";
 import { COLLAPSED_COOKIE } from "@/lib/sidebar";
 
 // How many endpoints there are, and how many deliveries wait in the dead-letter queue. null when
@@ -37,15 +38,6 @@ const links = [
   { href: "/deliveries", label: "Deliveries", icon: Send },
   { href: "/events", label: "Events", icon: Zap },
   { href: "/dlq", label: "Dead-letter queue", icon: ArchiveX },
-];
-
-// The parts of the Settings page, each a section with this id.
-const SETTINGS = [
-  { id: "general", label: "General" },
-  { id: "api-keys", label: "API keys" },
-  { id: "event-types", label: "Event types" },
-  { id: "delivery", label: "Delivery settings" },
-  { id: "usage", label: "Usage & limits" },
 ];
 
 function isCurrent(href: string, pathname: string | null): boolean {
@@ -236,7 +228,7 @@ function Links({
                 compact
               />
             ) : (
-              <SettingsGroup current={isCurrent("/settings", pathname)} />
+              <SettingsGroup pathname={pathname} />
             )}
           </li>
         </ul>
@@ -309,9 +301,10 @@ function NavLink({
   );
 }
 
-// Settings, with its sections underneath. Open while on the Settings page; a click opens or closes
-// it anywhere.
-function SettingsGroup({ current }: { current: boolean }) {
+// Settings, with its sections underneath, each its own page. Open while on a Settings page; a click
+// opens or closes it anywhere.
+function SettingsGroup({ pathname }: { pathname: string | null }) {
+  const current = isCurrent("/settings", pathname);
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? current;
 
@@ -340,11 +333,17 @@ function SettingsGroup({ current }: { current: boolean }) {
       </button>
       {open && (
         <ul id="settings-sections" className="mt-0.5 mb-1.5 ml-[18px] flex flex-col gap-0.5">
-          {SETTINGS.map(({ id, label }) => (
+          {SETTINGS_SECTIONS.map(({ id, label }) => (
             <li key={id}>
               <Link
-                href={`/settings#${id}`}
-                className="flex h-[34px] items-center rounded-[10px] px-2.5 text-[13px] text-fg-2 hover:bg-hover hover:text-fg"
+                href={`/settings/${id}`}
+                aria-current={pathname === `/settings/${id}` ? "page" : undefined}
+                className={classNames(
+                  "flex h-8.5 items-center rounded-[10px] px-2.5 text-[13px]",
+                  pathname === `/settings/${id}`
+                    ? "bg-[linear-gradient(90deg,var(--accent-soft),transparent)] text-fg shadow-[inset_0_0_0_1px_var(--accent-line)]"
+                    : "text-fg-2 hover:bg-hover hover:text-fg",
+                )}
               >
                 {label}
               </Link>

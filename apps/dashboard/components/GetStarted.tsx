@@ -17,7 +17,7 @@ export function GetStarted({ onboarding, origin }: { onboarding: Onboarding; ori
       title: "Register an event type",
       detail:
         "Names something that happens in your product, like order.paid. Only registered types are accepted.",
-      action: <ActionLink href="/settings#event-types">Add event type</ActionLink>,
+      action: <ActionLink href="/settings/event-types">Add event type</ActionLink>,
     },
     {
       done: steps.endpoint,
@@ -38,7 +38,7 @@ export function GetStarted({ onboarding, origin }: { onboarding: Onboarding; ori
       title: "Send an event from your code",
       detail:
         "Create an API key, then report an event with it. Every endpoint subscribed to its type gets a webhook.",
-      action: <ActionLink href="/settings#api-keys">Create API key</ActionLink>,
+      action: <ActionLink href="/settings/api-keys">Create API key</ActionLink>,
     },
   ];
   const doneCount = list.filter((step) => step.done).length;

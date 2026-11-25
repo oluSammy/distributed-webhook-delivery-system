@@ -7,7 +7,8 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { useToast } from "@/components/ui/Toast";
 import { apiRequest, RequestError } from "@/lib/browser-api";
-import { describePolicy, type RetryPolicy } from "@/lib/retry-policy";
+import { DEFAULT_RETRY_POLICY, describePolicy, type RetryPolicy } from "@/lib/retry-policy";
+import { RetrySchedule } from "./RetrySchedule";
 
 // Each field in the unit people think in, with the API's limits (packages/core/src/backoff.ts)
 // in that unit. unit is how many seconds one of it is.
@@ -20,8 +21,8 @@ const FIELDS = [
 
 type Key = (typeof FIELDS)[number]["key"];
 
-// The retry policy: owners edit it, with a sentence that says what the numbers mean as they type;
-// members see the sentence.
+// The retry policy: owners edit it, with a sentence and the resulting schedule, both following
+// what they type; members see the sentence and the schedule.
 export function RetryPolicyForm({ policy, canEdit }: { policy: RetryPolicy; canEdit: boolean }) {
   const router = useRouter();
   const toast = useToast();
@@ -52,9 +53,9 @@ export function RetryPolicyForm({ policy, canEdit }: { policy: RetryPolicy; canE
 
   if (!canEdit) {
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-5">
         <p>{describePolicy(policy)}</p>
-        <p className="text-[12.5px] text-fg-3">Only owners can change it.</p>
+        <RetrySchedule policy={policy} />
       </div>
     );
   }
@@ -104,7 +105,7 @@ export function RetryPolicyForm({ policy, canEdit }: { policy: RetryPolicy; canE
       <p className="text-[12.5px] text-fg-3">
         Changes apply from each delivery's next attempt, including deliveries already waiting.
       </p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           onClick={() => {
             setValues(toFormValues(policy));
@@ -113,10 +114,21 @@ export function RetryPolicyForm({ policy, canEdit }: { policy: RetryPolicy; canE
         >
           Discard changes
         </Button>
+        <Button
+          onClick={() => {
+            setValues(toFormValues(DEFAULT_RETRY_POLICY));
+            setErrors({});
+          }}
+        >
+          Reset to defaults
+        </Button>
         <Button type="submit" variant="primary" disabled={busy}>
           {busy ? "Saving…" : "Save"}
         </Button>
       </div>
+      {/* Follows the boxes as they're typed in, while every number is within its limits; the saved
+          policy otherwise (an empty box, or 1,000 attempts, would have nothing sensible to show). */}
+      <RetrySchedule policy={draft && withinLimits(draft) ? draft : policy} />
     </form>
   );
 }
@@ -140,6 +152,14 @@ function toPolicy(values: Record<Key, string>): RetryPolicy | null {
     policy[field.key] = number * field.unit;
   }
   return policy as RetryPolicy;
+}
+
+// Whether every field is within the range the API accepts, in the form's units.
+function withinLimits(policy: RetryPolicy): boolean {
+  return FIELDS.every((field) => {
+    const value = policy[field.key] / field.unit;
+    return value >= field.min && value <= field.max;
+  });
 }
 
 // The API's 400 names each field that's out of range; its message is in seconds, so the field's
