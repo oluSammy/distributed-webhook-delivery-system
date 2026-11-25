@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -7,6 +7,7 @@ import { DeliveryState } from "@/components/DeliveryState";
 import { FindById } from "@/components/FindById";
 import { LocalTime } from "@/components/LocalTime";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
+import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CodeBlock } from "@/components/ui/CodeBlock";
@@ -15,8 +16,11 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Table, Td, Th } from "@/components/ui/Table";
 import { apiGet } from "@/lib/api";
 import type { DeliveryDetail } from "@/lib/deliveries";
+import { reasonLabel } from "@/lib/dlq";
 import { plural } from "@/lib/format";
+import type { RetryPolicy } from "@/lib/retry-policy";
 import { AttemptTimeline } from "./AttemptTimeline";
+import { Countdown } from "./Countdown";
 import { DeliveryActions } from "./DeliveryActions";
 
 export const metadata: Metadata = { title: "Delivery · Webhooks" };
@@ -38,7 +42,11 @@ async function Delivery({ params }: { params: Params }) {
   if (!UUID.test(id)) {
     notFound();
   }
-  const delivery = await apiGet<DeliveryDetail>(`/api/deliveries/${id}`);
+  // The delivery, and the retry policy (for "1 of 10 failures used" and how long a wait can be).
+  const [delivery, policy] = await Promise.all([
+    apiGet<DeliveryDetail>(`/api/deliveries/${id}`),
+    apiGet<RetryPolicy>("/api/retry-policy"),
+  ]);
   const endpointName = delivery.endpoint_description || delivery.endpoint_url || "Deleted endpoint";
 
   return (
@@ -94,6 +102,16 @@ async function Delivery({ params }: { params: Params }) {
         <Fact label="Event">
           <ShortId id={delivery.event_id} label="event id" />
         </Fact>
+        {delivery.state === "pending" && (
+          <Fact label="Next attempt">
+            <NextAttemptFact delivery={delivery} policy={policy} />
+          </Fact>
+        )}
+        {delivery.state === "dead" && (
+          <Fact label="Why it died">
+            <WhyItDied delivery={delivery} />
+          </Fact>
+        )}
         {delivery.redelivered_from && (
           <Fact label="Redelivery of">
             <Link
@@ -113,7 +131,7 @@ async function Delivery({ params }: { params: Params }) {
           <h2 id="timeline-h" className="mb-4 text-[15px] font-semibold">
             Attempt timeline
           </h2>
-          <AttemptTimeline delivery={delivery} />
+          <AttemptTimeline delivery={delivery} policy={policy} />
         </Card>
         <Card aria-labelledby="sent-h" className="flex min-w-0 flex-[2_1_380px] flex-col gap-4">
           <h2 id="sent-h" className="text-[15px] font-semibold">
@@ -259,6 +277,69 @@ function WhatWasSent({ delivery }: { delivery: DeliveryDetail }) {
           </>
         )}
       </div>
+      {delivery.state === "dead" && delivery.resolution === null && (
+        <Banner tone="info" icon={Info}>
+          Redeliver creates a new delivery of the same event, with a fresh set of attempts. This one
+          stays as history, marked as redelivered.
+        </Banner>
+      )}
+    </>
+  );
+}
+
+// When a pending delivery is tried next: a countdown, the time, and how many of the allowed
+// failures it has used. "Being sent now" while an attempt is in flight; parked ones wait for
+// their endpoint, with no time.
+function NextAttemptFact({ delivery, policy }: { delivery: DeliveryDetail; policy: RetryPolicy }) {
+  const used = `${delivery.attempt_count} of ${policy.max_attempts} failures used`;
+  if (delivery.in_flight) {
+    return (
+      <>
+        Being sent now
+        <span className="mt-0.5 block text-[12.5px] font-normal text-fg-3">{used}</span>
+      </>
+    );
+  }
+  if (!delivery.next_attempt_at) {
+    return (
+      <>
+        When its endpoint is back
+        <span className="mt-0.5 block text-[12.5px] font-normal text-fg-3">
+          paused or disabled · {used}
+        </span>
+      </>
+    );
+  }
+  return (
+    <>
+      <Countdown iso={delivery.next_attempt_at} />
+      <span className="mt-0.5 block text-[12.5px] font-normal text-fg-3">
+        at <LocalTime iso={delivery.next_attempt_at} /> · {used}
+      </span>
+    </>
+  );
+}
+
+// Why a dead delivery died, in words, and where it is now: still in the dead-letter queue, or
+// redelivered or discarded, and when.
+function WhyItDied({ delivery }: { delivery: DeliveryDetail }) {
+  const where =
+    delivery.resolution === "redelivered"
+      ? "Redelivered"
+      : delivery.resolution === "discarded"
+        ? "Discarded"
+        : "In the dead-letter queue since";
+  const when =
+    delivery.resolution && delivery.resolved_at ? delivery.resolved_at : delivery.finished_at;
+  return (
+    <>
+      {reasonLabel(delivery.failure_reason ?? "")}{" "}
+      <span className="font-mono text-[12.5px] font-normal text-fg-3">
+        {delivery.failure_reason}
+      </span>
+      <span className="mt-0.5 block text-[12.5px] font-normal text-fg-3">
+        {where} {when && <LocalTime iso={when} />}
+      </span>
     </>
   );
 }

@@ -17,3 +17,11 @@ export function describePolicy(policy: RetryPolicy): string {
   const wait = (seconds: number) => formatDuration(seconds * 1000);
   return `Up to ${policy.max_attempts} attempts within ${wait(policy.max_age_seconds)}. Retries wait up to ${wait(policy.base_seconds)} at first, doubling each time, to at most ${wait(policy.cap_seconds)}.`;
 }
+
+// The longest the wait before the next try can be, after this many failures. Each wait is random
+// between 0 and this ceiling, which doubles with each failure up to cap_seconds: the same rule as
+// backoffSeconds in packages/core, which the Delivery Worker uses. A throttled try waits what the
+// endpoint asked instead (Retry-After), so this doesn't apply to it.
+export function retryCeilingSeconds(policy: RetryPolicy, failures: number): number {
+  return Math.min(policy.cap_seconds, policy.base_seconds * 2 ** Math.max(0, failures - 1));
+}

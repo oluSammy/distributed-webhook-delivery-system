@@ -8,6 +8,8 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Timeline, TimelineGap, TimelineItem } from "@/components/ui/Timeline";
 import type { Attempt, DeliveryDetail } from "@/lib/deliveries";
 import { formatDuration, plural } from "@/lib/format";
+import { type RetryPolicy, retryCeilingSeconds } from "@/lib/retry-policy";
+import { Countdown } from "./Countdown";
 
 // Each outcome's word and colour. These four colours are ones both Badge and TimelineItem take.
 const OUTCOMES: Record<
@@ -22,9 +24,15 @@ const OUTCOMES: Record<
 
 // Every attempt of the delivery, joined by the time between them, and the next one if it's
 // scheduled. Newest first by default: when something's wrong, the latest attempt matters most.
-export function AttemptTimeline({ delivery }: { delivery: DeliveryDetail }) {
+export function AttemptTimeline({
+  delivery,
+  policy,
+}: {
+  delivery: DeliveryDetail;
+  policy: RetryPolicy;
+}) {
   const [order, setOrder] = useState<"newest" | "oldest">("newest");
-  const upcoming = nextAttempt(delivery);
+  const upcoming = nextAttempt(delivery, policy);
 
   // Each attempt with the gap since the one before it (in time order), then put in the order shown.
   const items: ReactNode[] = [];
@@ -40,9 +48,7 @@ export function AttemptTimeline({ delivery }: { delivery: DeliveryDetail }) {
     }
     items.push(<AttemptItem key={attempt.attempt_number} attempt={attempt} />);
   });
-  if (upcoming) {
-    items.push(upcoming);
-  }
+  items.push(...upcoming);
   if (order === "newest") {
     items.reverse();
   }
@@ -103,26 +109,40 @@ function AttemptItem({ attempt }: { attempt: Attempt }) {
   );
 }
 
-// The next attempt, dashed, while one is scheduled; or a line saying it's waiting for its endpoint.
-function nextAttempt(delivery: DeliveryDetail): ReactNode {
+// The next attempt, dashed, while one is scheduled, with a countdown; or a line saying it's waiting
+// for its endpoint. After a failure, the gap before it says how long that wait could be.
+function nextAttempt(delivery: DeliveryDetail, policy: RetryPolicy): ReactNode[] {
   if (delivery.state !== "pending" || delivery.in_flight) {
-    return null;
+    return [];
   }
-  const number = (delivery.attempts.at(-1)?.attempt_number ?? 0) + 1;
-  return (
+  const last = delivery.attempts.at(-1);
+  const number = (last?.attempt_number ?? 0) + 1;
+  const items: ReactNode[] = [];
+  if (last?.outcome === "failure" && delivery.next_attempt_at) {
+    const ceiling = retryCeilingSeconds(policy, delivery.attempt_count);
+    items.push(
+      <TimelineGap key="gap-next">
+        waits up to {formatDuration(ceiling * 1000)} (random; the longest wait doubles after each
+        failure)
+      </TimelineGap>,
+    );
+  }
+  items.push(
     <TimelineItem key="next" marker={String(number)} tone="pend" upcoming>
       <span>
         <strong>Attempt {number}</strong>{" "}
         {delivery.next_attempt_at ? (
           <span className="text-fg-2">
-            scheduled for <LocalTime iso={delivery.next_attempt_at} />
+            scheduled for <LocalTime iso={delivery.next_attempt_at} /> ·{" "}
+            <Countdown iso={delivery.next_attempt_at} />
           </span>
         ) : (
           <span className="text-fg-2">waits until the endpoint is resumed or recovers</span>
         )}
       </span>
-    </TimelineItem>
+    </TimelineItem>,
   );
+  return items;
 }
 
 // A sentence for attempts whose status alone doesn't say enough.
