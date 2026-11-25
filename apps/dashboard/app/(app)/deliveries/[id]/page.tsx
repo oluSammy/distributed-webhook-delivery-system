@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { type ReactNode, Suspense } from "react";
 import { DeliveryState } from "@/components/DeliveryState";
+import { FindById } from "@/components/FindById";
 import { LocalTime } from "@/components/LocalTime";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +18,6 @@ import type { DeliveryDetail } from "@/lib/deliveries";
 import { plural } from "@/lib/format";
 import { AttemptTimeline } from "./AttemptTimeline";
 import { DeliveryActions } from "./DeliveryActions";
-import { FindById } from "@/components/FindById";
 
 export const metadata: Metadata = { title: "Delivery · Webhooks" };
 
@@ -70,7 +70,7 @@ async function Delivery({ params }: { params: Params }) {
           </div>
           <p className="text-fg-2">{summary(delivery)}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ThemeSwitch />
           <FindById />
           <DeliveryActions delivery={delivery} />
@@ -79,7 +79,7 @@ async function Delivery({ params }: { params: Params }) {
 
       <section
         aria-label="Delivery facts"
-        className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]"
+        className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(170px,1fr))]"
       >
         <Fact label="Created">
           <LocalTime iso={delivery.created_at} />

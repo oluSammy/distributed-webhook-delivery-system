@@ -1,16 +1,13 @@
 import classNames from "classnames";
 import type { ReactNode } from "react";
 
-// A table in a rounded box. On a narrow screen the box scrolls sideways, not the page; it can
-// take keyboard focus so it can be scrolled with the arrow keys. label names it for screen
-// readers ("Deliveries"). Rows go in <thead>/<tbody> as usual, with Th and Td for the cells.
 export function Table({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section
       aria-label={label}
       // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must take focus to scroll by keyboard
       tabIndex={0}
-      className="overflow-x-auto rounded-inset border border-line bg-card-2"
+      className="relative overflow-x-auto rounded-inset border border-line bg-card-2"
     >
       <table className="w-full border-collapse text-[13.5px] [&_tbody_tr:hover]:bg-hover [&_tbody_tr:last-child>td]:border-b-0">
         {children}

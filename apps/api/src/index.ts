@@ -13,13 +13,13 @@ import { endpoints } from "./routes/endpoints";
 import { eventTypes } from "./routes/event-types";
 import { events } from "./routes/events";
 import { keys } from "./routes/keys";
+import { lookups } from "./routes/lookup";
 import { me } from "./routes/me";
 import { onboarding } from "./routes/onboarding";
 import { retryPolicy } from "./routes/retry-policy";
 import { stats } from "./routes/stats";
 import { tenant } from "./routes/tenant";
 import { usage } from "./routes/usage";
-import { lookups } from "./routes/lookup";
 
 const app = createRouter();
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { type ReactNode, Suspense } from "react";
 import { DeliveryState } from "@/components/DeliveryState";
+import { FindById } from "@/components/FindById";
 import { LocalTime } from "@/components/LocalTime";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Button } from "@/components/ui/Button";
@@ -15,7 +16,6 @@ import { Table, Td, Th } from "@/components/ui/Table";
 import { apiGet } from "@/lib/api";
 import type { DeliveryPage } from "@/lib/deliveries";
 import type { EventDetail } from "@/lib/events";
-import { FindById } from "@/components/FindById";
 
 export const metadata: Metadata = { title: "Event · Webhooks" };
 

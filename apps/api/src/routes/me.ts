@@ -54,7 +54,7 @@ export const me = createRouter();
 me.openapi(getMe, async (c) => {
   const session = requireSession(c);
   const sql = c.get("sql");
-  const [[user], tenants,  [paused]] = await Promise.all([
+  const [[user], tenants, [paused]] = await Promise.all([
     sql<z.infer<typeof Me>["user"][]>`
         select id, login, name, avatar_url, is_operator from users where id = ${session.userId}
       `,
@@ -65,7 +65,7 @@ me.openapi(getMe, async (c) => {
         where m.user_id = ${session.userId}
         order by t.name
       `,
-      sql<{ workspace: boolean; everyone: boolean }[]>`
+    sql<{ workspace: boolean; everyone: boolean }[]>`
       select t.paused as workspace, g.paused as everyone
       from tenants t cross join global_settings g
       where t.id = ${c.get("tenantId")}

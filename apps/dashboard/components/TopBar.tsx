@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { ThemeSwitch } from "./ThemeSwitch";
 import { FindById } from "./FindById";
+import { ThemeSwitch } from "./ThemeSwitch";
 
 export function TopBar({
   title,

@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { type ReactNode, Suspense } from "react";
 import { DeliveryState } from "@/components/DeliveryState";
 import { EndpointState } from "@/components/EndpointState";
+import { FindById } from "@/components/FindById";
 import { LocalTime } from "@/components/LocalTime";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Banner } from "@/components/ui/Banner";
@@ -23,7 +24,6 @@ import { EditEndpoint } from "./EditEndpoint";
 import { EndpointActions } from "./EndpointActions";
 import { HealthPanel } from "./HealthPanel";
 import { SecretsPanel } from "./SecretsPanel";
-import { FindById } from "@/components/FindById";
 
 export const metadata: Metadata = { title: "Endpoint · Webhooks" };
 
@@ -79,7 +79,7 @@ async function EndpointView({ params }: { params: Params }) {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ThemeSwitch />
           <FindById />
           <EndpointActions endpoint={endpoint} />
