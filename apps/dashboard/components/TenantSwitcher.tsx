@@ -1,5 +1,6 @@
 "use client";
 
+import classNames from "classnames";
 import { ChevronsUpDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -14,7 +15,8 @@ import { useToast } from "@/components/ui/Toast";
 import type { Me } from "@/lib/api";
 
 // The tenant the dashboard is showing, and a menu to switch to another of the person's tenants.
-export function TenantSwitcher({ me }: { me: Me }) {
+// compact: only the tenant's initials, for the collapsed sidebar.
+export function TenantSwitcher({ me, compact = false }: { me: Me; compact?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const current = me.tenants.find((tenant) => tenant.id === me.tenant_id);
@@ -42,7 +44,11 @@ export function TenantSwitcher({ me }: { me: Me }) {
     <Menu>
       <MenuTrigger
         aria-label={`Switch tenant, current: ${current?.name ?? "none"}`}
-        className="flex min-h-[52px] w-full cursor-pointer items-center gap-2.5 rounded-inset border border-line bg-card-2 px-2.5 py-2 text-left"
+        title={compact ? current?.name : undefined}
+        className={classNames(
+          "flex min-h-[52px] w-full cursor-pointer items-center gap-2.5 rounded-inset border border-line bg-card-2 py-2 text-left",
+          compact ? "justify-center px-0" : "px-2.5",
+        )}
       >
         <span
           aria-hidden
@@ -50,13 +56,17 @@ export function TenantSwitcher({ me }: { me: Me }) {
         >
           {initials(current?.name ?? "?")}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium">{current?.name}</span>
-          <span className="block text-xs text-fg-3">
-            {current?.role === "owner" ? "Owner" : "Member"}
-          </span>
-        </span>
-        <ChevronsUpDown aria-hidden className="size-4 shrink-0 text-fg-3" />
+        {!compact && (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">{current?.name}</span>
+              <span className="block text-xs text-fg-3">
+                {current?.role === "owner" ? "Owner" : "Member"}
+              </span>
+            </span>
+            <ChevronsUpDown aria-hidden className="size-4 shrink-0 text-fg-3" />
+          </>
+        )}
       </MenuTrigger>
       <MenuContent align="start">
         <MenuLabel>Tenants</MenuLabel>

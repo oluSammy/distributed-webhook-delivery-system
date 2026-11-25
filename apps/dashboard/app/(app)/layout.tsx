@@ -1,9 +1,12 @@
+import { cookies } from "next/headers";
 import { unstable_rethrow } from "next/navigation";
 import { type ReactNode, Suspense } from "react";
 import { PauseBanner } from "@/components/PauseBanner";
-import { Sidebar } from "@/components/Sidebar";
+import { COLLAPSED_COOKIE, Sidebar, type SidebarCounts } from "@/components/Sidebar";
 import { UsageBanner } from "@/components/UsageBanner";
-import { getMe } from "@/lib/api";
+import { apiGet, getMe } from "@/lib/api";
+import type { DlqCounts } from "@/lib/dlq";
+import type { Endpoint } from "@/lib/endpoints";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
@@ -32,13 +35,26 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   );
 }
 
-// If /api/me fails, the sidebar keeps its empty frame, so the page's own error shows inside the
-// layout instead of the whole screen failing. A redirect to sign in (a 401) still goes through.
 async function SignedInSidebar() {
+  const collapsed = (await cookies()).get(COLLAPSED_COOKIE)?.value === "collapsed";
   try {
-    return <Sidebar me={await getMe()} />;
+    const [me, counts] = await Promise.all([getMe(), sidebarCounts()]);
+    return <Sidebar me={me} counts={counts} collapsed={collapsed} />;
   } catch (error) {
     unstable_rethrow(error);
-    return <Sidebar me={null} />;
+    return <Sidebar me={null} collapsed={collapsed} />;
+  }
+}
+
+async function sidebarCounts(): Promise<SidebarCounts> {
+  try {
+    const [{ endpoints }, dead] = await Promise.all([
+      apiGet<{ endpoints: Endpoint[] }>("/api/endpoints"),
+      apiGet<DlqCounts>("/api/dlq/counts"),
+    ]);
+    return { endpoints: endpoints.length, dead: dead.total };
+  } catch (error) {
+    unstable_rethrow(error);
+    return null;
   }
 }

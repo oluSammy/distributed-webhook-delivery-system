@@ -39,7 +39,7 @@ export function FindById() {
           aria-invalid={invalid ? true : undefined}
           aria-describedby={invalid ? "find-hint" : undefined}
           onChange={() => setInvalid(false)}
-          placeholder="Find by id"
+          placeholder="Search an endpoint, delivery or event by its id"
           autoComplete="off"
           spellCheck={false}
           className="pl-9 font-mono text-[12.5px]"

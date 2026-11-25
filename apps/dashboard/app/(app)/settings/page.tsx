@@ -47,7 +47,7 @@ async function Settings() {
 
   return (
     <>
-      <Card aria-labelledby="general-h">
+      <Card aria-labelledby="general-h" id="general" className="scroll-mt-5">
         <h2 id="general-h" className="mb-4 text-[15px] font-semibold">
           General
         </h2>
@@ -135,7 +135,7 @@ async function Settings() {
         <EventTypes types={event_types} />
       </Card>
 
-      <Card aria-labelledby="retries-h">
+      <Card aria-labelledby="retries-h" id="delivery" className="scroll-mt-5">
         <h2 id="retries-h" className="text-[15px] font-semibold">
           Retry policy
         </h2>
