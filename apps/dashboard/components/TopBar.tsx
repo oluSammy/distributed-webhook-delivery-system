@@ -5,10 +5,12 @@ import { ThemeSwitch } from "./ThemeSwitch";
 export function TopBar({
   title,
   subtitle,
+  search,
   children,
 }: {
   title: string;
   subtitle?: string;
+  search?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -18,7 +20,7 @@ export function TopBar({
         {subtitle && <p className="text-fg-3">{subtitle}</p>}
       </div>
       {children}
-      <FindById />
+      {search ?? <FindById />}
       <ThemeSwitch />
     </header>
   );

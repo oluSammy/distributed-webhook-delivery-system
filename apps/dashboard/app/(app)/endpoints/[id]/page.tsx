@@ -175,9 +175,14 @@ async function EndpointView({ params }: { params: Params }) {
             </dl>
           </Card>
           <Card aria-labelledby="recent-h">
-            <h2 id="recent-h" className="mb-4 text-[15px] font-semibold">
-              Recent deliveries
-            </h2>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 id="recent-h" className="text-[15px] font-semibold">
+                Recent deliveries
+              </h2>
+              <Button size="sm" asChild>
+                <Link href={`/deliveries?endpoint_id=${endpoint.id}`}>View all</Link>
+              </Button>
+            </div>
             {recent.deliveries.length === 0 ? (
               <p className="text-fg-2">
                 None yet. Send a test event, or wait for an event that matches its subscriptions.

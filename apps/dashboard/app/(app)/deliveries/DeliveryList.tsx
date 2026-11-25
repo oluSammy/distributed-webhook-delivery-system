@@ -12,14 +12,20 @@ import { Tag } from "@/components/ui/Tag";
 import { useToast } from "@/components/ui/Toast";
 import {
   type Delivery,
+  type DeliveryFilters,
   type DeliveryPage,
   deliveriesPath,
-  type StateFilter,
 } from "@/lib/deliveries";
 
 // The deliveries table. The first page comes from the server; "Load more" fetches the next one in
 // the browser (through the dashboard's /api, with the session cookie) and adds it below.
-export function DeliveryList({ first, state }: { first: DeliveryPage; state: StateFilter }) {
+export function DeliveryList({
+  first,
+  filters,
+}: {
+  first: DeliveryPage;
+  filters: DeliveryFilters;
+}) {
   const toast = useToast();
   const [rows, setRows] = useState(first.deliveries);
   const [cursor, setCursor] = useState(first.next_cursor);
@@ -31,7 +37,7 @@ export function DeliveryList({ first, state }: { first: DeliveryPage; state: Sta
     }
     setLoading(true);
     try {
-      const response = await fetch(deliveriesPath(state, cursor));
+      const response = await fetch(deliveriesPath(filters, cursor));
       if (response.status === 401) {
         window.location.assign("/sign-in?error=expired");
         return;
