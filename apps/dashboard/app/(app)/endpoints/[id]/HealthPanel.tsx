@@ -6,6 +6,7 @@ import { LocalTime } from "@/components/LocalTime";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Meter } from "@/components/ui/Meter";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { EndpointHealth } from "@/lib/endpoints";
 
@@ -91,21 +92,35 @@ export function HealthPanel({ endpointId }: { endpointId: string }) {
           )}
         </Fact>
         {limiter === null ? (
-          <Fact label="Limits">
+          <Card className="col-span-full flex flex-col items-start gap-2 px-4 py-3.5">
+            <Badge tone="neutral">Live status unavailable</Badge>
             <p className="text-fg-2">
-              Live limits can't be read right now. Delivery isn't affected.
+              We can't read this endpoint's live limits right now. Delivery isn't affected. We'll
+              try again in {REFRESH_SECONDS} s.
             </p>
-          </Fact>
+          </Card>
         ) : (
           <>
             <Fact label="Sending rate">
               <Big value={limiter.current_rate_per_s} of={`${limiter.rate_limit_per_s} / s`} />
+              <Meter
+                value={limiter.current_rate_per_s}
+                max={limiter.rate_limit_per_s}
+                label="Sending rate, of the rate limit"
+                className="mt-2"
+              />
               {limiter.current_rate_per_s < limiter.rate_limit_per_s && (
                 <p className="mt-1 text-[12.5px] text-fg-3">Recovering after it was throttled</p>
               )}
             </Fact>
             <Fact label="Being sent now">
               <Big value={limiter.slots_in_use} of={`${limiter.concurrency_limit} at once`} />
+              <Meter
+                value={limiter.slots_in_use}
+                max={limiter.concurrency_limit}
+                label="Sends in progress, of the concurrency limit"
+                className="mt-2"
+              />
             </Fact>
             <Fact label="Throttled">
               {limiter.throttled_until ? (

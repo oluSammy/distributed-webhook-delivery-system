@@ -1,8 +1,9 @@
 "use client";
 
-import { History } from "lucide-react";
+import { History, TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/Dialog";
 import { Field } from "@/components/ui/Field";
@@ -17,7 +18,8 @@ type Range = "hour" | "day" | "custom";
 const HOUR = 3_600_000;
 
 // Replay: sends this endpoint every stored event from a time range that its subscriptions match,
-// as new deliveries (a backfill after an outage). The API does it a page at a time; this keeps
+// as new deliveries (a backfill after an outage). Allowed while paused or disabled: the new
+// deliveries wait, like any other, until sending starts again. The API does it a page at a time; this keeps
 // calling with the cursor until it's done, and shows how many so far.
 export function ReplayDialog({ endpoint }: { endpoint: Endpoint }) {
   const router = useRouter();
@@ -96,7 +98,7 @@ export function ReplayDialog({ endpoint }: { endpoint: Endpoint }) {
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogTrigger asChild>
-        <Button disabled={endpoint.state === "paused"}>
+        <Button>
           <History aria-hidden />
           Replay
         </Button>
@@ -106,6 +108,13 @@ export function ReplayDialog({ endpoint }: { endpoint: Endpoint }) {
         description="Sends every stored event from the time range that this endpoint's subscriptions match, as new deliveries. Each carries its event's id as webhook-id, so a receiver that
 skips duplicates skips ones it already has."
       >
+        {endpoint.state !== "active" && (
+          <Banner tone={endpoint.state === "paused" ? "pause" : "dis"} icon={TriangleAlert}>
+            {endpoint.state === "paused"
+              ? "This endpoint is paused, so replayed deliveries will wait until you resume it."
+              : "This endpoint is disabled, so replayed deliveries will wait until it's working again."}
+          </Banner>
+        )}
         <Segmented
           label="Time range"
           value={range}

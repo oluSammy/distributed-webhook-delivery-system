@@ -15,15 +15,19 @@ import { apiPost, apiRequest, RequestError } from "@/lib/browser-api";
 import type { DeliveryDetail } from "@/lib/deliveries";
 import { type Endpoint, endpointName } from "@/lib/endpoints";
 import { formatDuration } from "@/lib/format";
+import { EditEndpointDialog } from "./EditEndpoint";
 import { ReplayDialog } from "./ReplayDialog";
+import { RotateSecret } from "./RotateSecret";
 
-// The buttons at the top of an endpoint's page.
+// The buttons at the top of an endpoint's page, in the design's order.
 export function EndpointActions({ endpoint }: { endpoint: Endpoint }) {
   return (
     <div className="flex flex-wrap gap-2">
+      <EditEndpointDialog endpoint={endpoint} />
       <SendTest endpoint={endpoint} />
       <PauseOrResume endpoint={endpoint} />
       <ReplayDialog endpoint={endpoint} />
+      <RotateSecret endpointId={endpoint.id} />
       <DeleteEndpoint endpoint={endpoint} />
     </div>
   );
@@ -143,9 +147,15 @@ function SendTest({ endpoint }: { endpoint: Endpoint }) {
   );
 }
 
-// Pause stops sending (new deliveries wait); resume sends what waited. A disabled endpoint can be
-// paused too, which stops its breaker's probes.
-function PauseOrResume({ endpoint }: { endpoint: Endpoint }) {
+export function PauseOrResume({
+  endpoint,
+  size = "md",
+  variant = "secondary",
+}: {
+  endpoint: Endpoint;
+  size?: "sm" | "md";
+  variant?: "secondary" | "primary";
+}) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -167,7 +177,7 @@ function PauseOrResume({ endpoint }: { endpoint: Endpoint }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button>
+        <Button size={size} variant={variant}>
           {paused ? <Play aria-hidden /> : <Pause aria-hidden />}
           {paused ? "Resume" : "Pause"}
         </Button>

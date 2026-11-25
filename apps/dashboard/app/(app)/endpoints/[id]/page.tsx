@@ -1,12 +1,13 @@
-import { Ban, ChevronRight, CirclePause } from "lucide-react";
+import { Ban, ChevronRight, CirclePause, Gauge } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, unstable_rethrow } from "next/navigation";
 import { type ReactNode, Suspense } from "react";
 import { DeliveryState } from "@/components/DeliveryState";
 import { EndpointState } from "@/components/EndpointState";
 import { FindById } from "@/components/FindById";
 import { LocalTime } from "@/components/LocalTime";
+import { NextAttempt } from "@/components/NextAttempt";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
@@ -19,9 +20,9 @@ import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs";
 import { Tag } from "@/components/ui/Tag";
 import { apiGet } from "@/lib/api";
 import type { DeliveryPage } from "@/lib/deliveries";
-import { type Endpoint, endpointName, successRate } from "@/lib/endpoints";
+import { type Endpoint, type EndpointHealth, endpointName, successRate } from "@/lib/endpoints";
 import { EditEndpoint } from "./EditEndpoint";
-import { EndpointActions } from "./EndpointActions";
+import { EndpointActions, PauseOrResume } from "./EndpointActions";
 import { HealthPanel } from "./HealthPanel";
 import { SecretsPanel } from "./SecretsPanel";
 
@@ -44,11 +45,14 @@ async function EndpointView({ params }: { params: Params }) {
   if (!UUID.test(id)) {
     notFound();
   }
-  // The endpoint and its newest deliveries, asked for at the same time.
-  const [endpoint, recent] = await Promise.all([
+  // The endpoint, its newest deliveries, and its live health (for the banners), asked for at the
+  // same time.
+  const [endpoint, recent, health] = await Promise.all([
     apiGet<Endpoint>(`/api/endpoints/${id}`),
     apiGet<DeliveryPage>(`/api/deliveries?endpoint_id=${id}&limit=10`),
+    liveHealth(id),
   ]);
+  const limiter = health?.limiter ?? null;
   const name = endpointName(endpoint);
 
   return (
@@ -89,14 +93,46 @@ async function EndpointView({ params }: { params: Params }) {
       {endpoint.state === "disabled" && (
         <Banner tone="dis" icon={Ban}>
           <strong>Disabled by the circuit breaker.</strong> Too many deliveries failed, so sending
-          stopped. New deliveries wait, and a test delivery goes out now and then: when one
-          succeeds, sending starts again by itself.
+          stopped and new deliveries wait.{" "}
+          {health?.probe_at ? (
+            <>
+              A test delivery goes out at <LocalTime iso={health.probe_at} />: if it succeeds,
+              sending starts again by itself.
+            </>
+          ) : (
+            "A test delivery goes out now and then: when one succeeds, sending starts again by itself."
+          )}{" "}
+          There's no manual enable: fix the receiver and the test picks it up.
         </Banner>
       )}
       {endpoint.state === "paused" && (
-        <Banner tone="pause" icon={CirclePause}>
+        <Banner
+          tone="pause"
+          icon={CirclePause}
+          action={<PauseOrResume endpoint={endpoint} size="sm" variant="primary" />}
+        >
           <strong>Paused.</strong> Nothing is sent until you resume it. New deliveries wait, using
           up no attempts.
+        </Banner>
+      )}
+      {endpoint.state === "active" && health?.health === "degraded" && limiter && (
+        <Banner tone="fail" icon={Gauge}>
+          {limiter.throttled_until ? (
+            <>
+              <strong>
+                Throttled until <LocalTime iso={limiter.throttled_until} />.
+              </strong>{" "}
+              The endpoint asked us to slow down (429), so sending is at{" "}
+              {limiter.current_rate_per_s.toLocaleString("en")} of{" "}
+              {limiter.rate_limit_per_s.toLocaleString("en")} per second, and speeds up again
+              gradually.
+            </>
+          ) : (
+            <>
+              <strong>Failing often.</strong> {limiter.recent_failures} of {limiter.recent_attempts}{" "}
+              attempts failed in the last 10 minutes. Failed deliveries are retried.
+            </>
+          )}
         </Banner>
       )}
 
@@ -155,6 +191,7 @@ async function EndpointView({ params }: { params: Params }) {
                     <Th>State</Th>
                     <Th align="right">Attempts</Th>
                     <Th>Last status or error</Th>
+                    <Th>Next attempt</Th>
                     <Th align="right">
                       <span className="sr-only">Open</span>
                     </Th>
@@ -180,6 +217,9 @@ async function EndpointView({ params }: { params: Params }) {
                           {delivery.last_status ?? delivery.last_error_kind ?? "—"}
                         </span>
                       </Td>
+                      <Td>
+                        <NextAttempt delivery={delivery} />
+                      </Td>
                       <Td align="right">
                         <Button size="sm" asChild>
                           <Link href={`/deliveries/${delivery.id}`}>Open</Link>
@@ -204,6 +244,17 @@ async function EndpointView({ params }: { params: Params }) {
       </Tabs>
     </>
   );
+}
+
+// The endpoint's live health, for the banners. Nice to have: if it can't be read, the banners say
+// less, and the page still shows.
+async function liveHealth(id: string): Promise<EndpointHealth | null> {
+  try {
+    return await apiGet<EndpointHealth>(`/api/endpoints/${id}/health`);
+  } catch (error) {
+    unstable_rethrow(error);
+    return null;
+  }
 }
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {

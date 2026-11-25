@@ -1,8 +1,10 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/Dialog";
 import { useToast } from "@/components/ui/Toast";
 import { apiRequest } from "@/lib/browser-api";
 import type { Endpoint } from "@/lib/endpoints";
@@ -13,9 +15,15 @@ import {
   toFieldErrors,
 } from "../EndpointFields";
 
-// The Settings tab: the endpoint's fields, filled in, saved with PATCH. A changed URL is checked
-// again by the API; new subscriptions apply to events from now on.
-export function EditEndpoint({ endpoint }: { endpoint: Endpoint }) {
+export function EditEndpoint({
+  endpoint,
+  onSaved,
+  onCancel,
+}: {
+  endpoint: Endpoint;
+  onSaved?: () => void;
+  onCancel?: () => void;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -36,6 +44,7 @@ export function EditEndpoint({ endpoint }: { endpoint: Endpoint }) {
       );
       toast("Changes saved");
       router.refresh();
+      onSaved?.();
     } catch (error) {
       setErrors(toFieldErrors(error));
     } finally {
@@ -49,19 +58,44 @@ export function EditEndpoint({ endpoint }: { endpoint: Endpoint }) {
       <p className="text-[12.5px] text-fg-3">
         New subscriptions apply to events from now on; deliveries already made stay as they are.
       </p>
-      <div className="flex gap-2">
-        <Button
-          onClick={() => {
-            setErrors({});
-            setDrawn(drawn + 1);
-          }}
-        >
-          Discard changes
-        </Button>
+      <div className={onCancel ? "flex justify-end gap-2" : "flex gap-2"}>
+        {onCancel ? (
+          <Button onClick={onCancel}>Cancel</Button>
+        ) : (
+          <Button
+            onClick={() => {
+              setErrors({});
+              setDrawn(drawn + 1);
+            }}
+          >
+            Discard changes
+          </Button>
+        )}
         <Button type="submit" variant="primary" disabled={busy}>
           {busy ? "Saving…" : "Save"}
         </Button>
       </div>
     </form>
+  );
+}
+
+export function EditEndpointDialog({ endpoint }: { endpoint: Endpoint }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <Pencil aria-hidden />
+          Edit
+        </Button>
+      </DialogTrigger>
+      <DialogContent title="Edit endpoint">
+        <EditEndpoint
+          endpoint={endpoint}
+          onSaved={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
