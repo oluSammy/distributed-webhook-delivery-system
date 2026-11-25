@@ -24,6 +24,7 @@ import { type Endpoint, type EndpointHealth, endpointName, successRate } from "@
 import { EditEndpoint } from "./EditEndpoint";
 import { EndpointActions, PauseOrResume } from "./EndpointActions";
 import { HealthPanel } from "./HealthPanel";
+import { ProbeWhen } from "./ProbeWhen";
 import { SecretsPanel } from "./SecretsPanel";
 
 export const metadata: Metadata = { title: "Endpoint · Webhooks" };
@@ -96,8 +97,8 @@ async function EndpointView({ params }: { params: Params }) {
           stopped and new deliveries wait.{" "}
           {health?.probe_at ? (
             <>
-              A test delivery goes out at <LocalTime iso={health.probe_at} />: if it succeeds,
-              sending starts again by itself.
+              A test delivery <ProbeWhen iso={health.probe_at} />: if it succeeds, sending starts
+              again by itself.
             </>
           ) : (
             "A test delivery goes out now and then: when one succeeds, sending starts again by itself."

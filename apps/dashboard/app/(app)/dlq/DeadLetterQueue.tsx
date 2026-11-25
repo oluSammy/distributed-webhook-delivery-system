@@ -1,10 +1,11 @@
 "use client";
 
-import { RotateCcw } from "lucide-react";
+import { OctagonX, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LocalTime } from "@/components/LocalTime";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/Dialog";
@@ -44,6 +45,8 @@ export function DeadLetterQueue({
   const [allMatching, setAllMatching] = useState(false);
   const [confirming, setConfirming] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
+  // The row being redelivered on its own, so only its button waits.
+  const [redelivering, setRedelivering] = useState<string | null>(null);
 
   // How many match the chosen reason (or all of them), from the counts.
   const matching = reason
@@ -113,6 +116,19 @@ export function DeadLetterQueue({
       done += deliveries.length;
     }
     return done;
+  }
+
+  async function redeliverOne(id: string) {
+    setRedelivering(id);
+    try {
+      await apiPost(`/api/dlq/${id}/redeliver`);
+      toast("Redelivered 1 delivery");
+      router.refresh();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "That didn't work. Try again.");
+    } finally {
+      setRedelivering(null);
+    }
   }
 
   async function confirm() {
@@ -235,7 +251,11 @@ export function DeadLetterQueue({
                       {row.endpoint_description || row.endpoint_url || "Deleted endpoint"}
                     </span>
                   </Td>
-                  <Td>{reasonLabel(row.failure_reason)}</Td>
+                  <Td>
+                    <Badge tone="dead" icon={OctagonX}>
+                      {reasonLabel(row.failure_reason)}
+                    </Badge>
+                  </Td>
                   <Td align="right" className="tabular-nums">
                     {row.attempt_count}
                   </Td>
@@ -245,9 +265,19 @@ export function DeadLetterQueue({
                     </span>
                   </Td>
                   <Td align="right">
-                    <Button size="sm" asChild>
-                      <Link href={`/deliveries/${row.id}`}>Open</Link>
-                    </Button>
+                    <span className="inline-flex gap-1.5">
+                      <Button size="sm" asChild>
+                        <Link href={`/deliveries/${row.id}`}>Open</Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => redeliverOne(row.id)}
+                        disabled={redelivering !== null || busy}
+                        aria-label={`Redeliver ${row.event_type} to ${row.endpoint_description || row.endpoint_url || "a deleted endpoint"}`}
+                      >
+                        {redelivering === row.id ? "Redelivering…" : "Redeliver"}
+                      </Button>
+                    </span>
                   </Td>
                 </tr>
               ))}

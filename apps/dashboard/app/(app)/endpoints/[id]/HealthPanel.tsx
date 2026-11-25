@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Meter } from "@/components/ui/Meter";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { EndpointHealth } from "@/lib/endpoints";
+import { ProbeWhen } from "./ProbeWhen";
 
 const REFRESH_SECONDS = 15;
 
@@ -87,7 +88,7 @@ export function HealthPanel({ endpointId }: { endpointId: string }) {
           <Badge tone={status.tone}>{status.label}</Badge>
           {health.probe_at && (
             <p className="mt-1 text-[12.5px] text-fg-3">
-              Next test delivery at <LocalTime iso={health.probe_at} />
+              Next test delivery <ProbeWhen iso={health.probe_at} />
             </p>
           )}
         </Fact>

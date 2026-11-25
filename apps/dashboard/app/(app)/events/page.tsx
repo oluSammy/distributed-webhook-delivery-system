@@ -1,6 +1,7 @@
 import { Zap } from "lucide-react";
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { FindById } from "@/components/FindById";
 import { TopBar } from "@/components/TopBar";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -17,7 +18,11 @@ type SearchParams = Promise<{ type?: string }>;
 export default function EventsPage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <>
-      <TopBar title="Events" subtitle="What your code reported · newest first" />
+      <TopBar
+        title="Events"
+        subtitle="What your code reported · newest first"
+        search={<FindById placeholder="Search by event id" />}
+      />
       <Suspense fallback={<LoadingEvents />}>
         <Events searchParams={searchParams} />
       </Suspense>

@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/Input";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// The top bar's search: paste an endpoint, delivery or event id, press Enter, and go to it.
-// /find/<id> works out which of the three it is.
-export function FindById() {
+export function FindById({
+  placeholder = "Search an endpoint, delivery or event by its id",
+}: {
+  placeholder?: string;
+}) {
   const router = useRouter();
   const [invalid, setInvalid] = useState(false);
 
@@ -39,7 +41,7 @@ export function FindById() {
           aria-invalid={invalid ? true : undefined}
           aria-describedby={invalid ? "find-hint" : undefined}
           onChange={() => setInvalid(false)}
-          placeholder="Search an endpoint, delivery or event by its id"
+          placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
           className="pl-9 font-mono text-[12.5px]"

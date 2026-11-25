@@ -23,6 +23,7 @@ import { TenantSwitcher } from "@/components/TenantSwitcher";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { Me } from "@/lib/api";
+import { COLLAPSED_COOKIE } from "@/lib/sidebar";
 
 // How many endpoints there are, and how many deliveries wait in the dead-letter queue. null when
 // they couldn't be read: the sidebar then shows no counts.
@@ -46,10 +47,6 @@ const SETTINGS = [
   { id: "delivery", label: "Delivery settings" },
   { id: "usage", label: "Usage & limits" },
 ];
-
-// The cookie that remembers a collapsed sidebar. A cookie, not localStorage, so the server draws
-// the sidebar the right width from the start (see app/(app)/layout.tsx).
-export const COLLAPSED_COOKIE = "sidebar";
 
 function isCurrent(href: string, pathname: string | null): boolean {
   if (pathname === null) {

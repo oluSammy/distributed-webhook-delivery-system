@@ -2,11 +2,12 @@ import { cookies } from "next/headers";
 import { unstable_rethrow } from "next/navigation";
 import { type ReactNode, Suspense } from "react";
 import { PauseBanner } from "@/components/PauseBanner";
-import { COLLAPSED_COOKIE, Sidebar, type SidebarCounts } from "@/components/Sidebar";
+import { Sidebar, type SidebarCounts } from "@/components/Sidebar";
 import { UsageBanner } from "@/components/UsageBanner";
 import { apiGet, getMe } from "@/lib/api";
 import type { DlqCounts } from "@/lib/dlq";
 import type { Endpoint } from "@/lib/endpoints";
+import { COLLAPSED_COOKIE } from "@/lib/sidebar";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
